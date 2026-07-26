@@ -1,6 +1,6 @@
 # PC-OCI 하이브리드 부동산 퀀트 스크리너 개발 현황 및 인수인계서
 
-이 문서는 사용자가 데스크탑에서 노트북으로 개발 환경을 전환할 때, 현재까지의 개발 진행 상황과 앞으로의 남은 과제를 파악하기 위해 작성되었습니다.
+이 문서는 데스크탑 PC 및 노트북 환경 간 개발 작업을 상호 이어서 진행할 수 있도록 작성된 현황 문서입니다.
 
 ## 1. 프로젝트 개요
 * **목적**: 네이버 부동산 매물을 스캔하여 하락률 기반으로 퀀트 점수를 매기고, 교통 입지 정보와 함께 AI 분석 프롬프트를 텔레그램으로 알림해주는 자동화 시스템.
@@ -19,53 +19,58 @@
 
 ### ✅ Phase 2: PC 분석 모듈 개발 (완료)
 - **`pc/ml_engine/scorer.py`**: 가상 데이터(또는 실데이터)를 기반으로 평당가, 하락률을 계산하여 기본 점수를 산출.
-- **`pc/basic_crawler/location_crawler.py`**: 카카오맵 로컬 API를 연동하여 단지의 좌표를 따고 반경 1.5km 내 지하철역 도보 거리를 계산해 추가 가점 부여 로직 반영. (캐싱 적용으로 중복 API 호출 방지)
+- **`pc/basic_crawler/location_crawler.py`**: 카카오맵 로컬 API를 연동하여 단지의 좌표를 따고 반경 1.5km 내 지하철역 도보 거리를 계산해 추가 가점 부여 로직 반영 (REST API 키 연동 검증 완료).
 - **PC 실행 환경**: `start.bat`, `stop.bat`, `requirements.txt` 세팅 완료. 
 
 ### ✅ Phase 3: OCI 스캐너 및 알리미 뼈대 개발 (완료)
-- **`oci/notifier/telegram_bot.py`**: PC에서 분석한 `ml_results.json`과 DB의 `sent_alerts` 테이블을 조인하여, 중복 발송 없이 신규 매물만 텔레그램으로 쏘는 로직 완성. (테스트 완료)
-- **`oci/crawler/naver_crawler.py`**: 네이버 부동산 비공식 JSON API 클러스터링 호출 구조 작성 완료 (단, 봇 차단 이슈 잔존).
-- **OCI 실행 환경**: `oci/main.py` 진입점 완성.
+- **`oci/notifier/telegram_bot.py`**: PC에서 분석한 `ml_results.json`과 DB의 `sent_alerts` 테이블을 조인하여, 중복 발송 없이 신규 매물만 텔레그램으로 쏘는 로직 완성 (실제 텔레그램 봇 토큰 연동 및 알림 발송 검증 완료).
+- **`oci/main.py`**: OCI 파이프라인 진입점 테스트 완료.
+
+### ✅ Phase 4: 네이버 부동산 API 봇 차단(429 Error) 우회 해결 (완료)
+- **`oci/crawler/naver_crawler.py`**: `curl_cffi` (Chrome 120 TLS 지문 에뮬레이션) 및 메인 세션 쿠키 초기화 로직 적용.
+- 기존의 429 Too Many Requests 방화벽 차단을 우회하여 100개 이상의 아파트 단지 목록 API 수집(HTTP 200)에 성공함.
 
 ---
 
-## 3. 남은 과제 및 미완성 영역 (노트북에서 이어서 할 작업)
+## 3. 남은 과제 및 미완성 영역 (PC에서 이어서 할 작업)
 
-### 🚨 Issue 1. 네이버 부동산 API 봇 차단(429 Error) 우회
-- **원인**: 현재 `oci/crawler/naver_crawler.py`가 Python `requests`로 네이버 부동산 API를 찌르고 있으나, 네이버 측에서 봇 접근을 감지하고 `429 Too Many Requests`로 차단함.
-- **해결 방안 계획**:
-  1. **Selenium / Playwright 도입**: 브라우저 자동화 도구를 사용해 실제 사람이 접속하는 것처럼 쿠키와 세션을 생성하여 우회.
-  2. **모바일 웹 파싱**: `m.land.naver.com`의 덜 엄격한 구형 API나 HTML 구조를 파싱하는 방법.
+### ⏳ Issue 1. 상세 매물(Article) 크롤링 및 DB 저장 고도화
+- **목표**: 단지 목록 수집에 이어, 각 단지별 상세 매물(Article) 목록을 수집하여 SQLite DB (`properties` 테이블)에 Insert/Update하는 크롤러 세부 로직 완성.
+- **참고**: 상세 매물 API 호출 전 단지 상세 페이지(`https://new.land.naver.com/complexes/{complex_no}`) 세션 접속 필요.
 
-### ⏳ Issue 2. OCI / PC 환경 배포 준비 (Phase 4)
-- **목표**: 노트북 및 클라우드(OCI)에서 클릭 한 번에 구동되도록 인프라 구축.
+### ⏳ Issue 2. OCI / PC 환경 배포 준비
+- **목표**: 클릭 한 번에 구동되도록 인프라 구축.
 - **작업 내용**:
   1. `Dockerfile` 작성
-  2. `docker-compose.yml` 작성 (선택)
-  3. 로컬과 OCI 간의 실제 DB(sqlite) 동기화(SFTP 또는 SCP) 스크립트 고도화 (현재는 `sync_manager.py`에 Mock으로만 존재함).
+  2. `docker-compose.yml` 작성
+  3. 로컬과 OCI 간의 실제 DB(sqlite) 동기화(SFTP 또는 SCP) 스크립트 고도화 (`pc/sync/sync_manager.py`).
 
 ---
 
-## 4. 노트북 세팅 및 구동 가이드
+## 4. PC/노트북 환경 세팅 및 구동 가이드
 
-노트북에서 이 Git 저장소를 Clone(또는 다운로드) 받은 후 다음을 수행하세요:
+PC에서 작업을 이어서 하실 때 아래 순서대로 실행하세요:
 
-1. **가상 환경 세팅**:
+1. **Git 저장소 최신화**:
+   ```bash
+   git pull origin master
+   ```
+2. **가상 환경 세팅 및 패키지 설치**:
    ```bash
    python -m venv .venv
    .venv\Scripts\activate
    pip install -r pc/requirements.txt
    ```
-2. **환경 변수 파일 생성**:
-   프로젝트 루트에 `.env` 파일을 만들고 아래 값을 채워넣습니다. (`.env.example` 참고)
+3. **환경 변수 파일 (`.env`) 설정**:
+   프로젝트 루트에 `.env` 파일을 설정합니다.
    ```env
-   # 카카오맵 로컬 API
-   KAKAO_REST_API_KEY=발급받은키
+   # 카카오맵 로컬 API REST API 키
+   KAKAO_REST_API_KEY=발급받은_REST_API_키
    
    # 텔레그램 봇
    TELEGRAM_BOT_TOKEN=봇토큰
    TELEGRAM_CHAT_ID=채팅방ID
    ```
-3. **실행 테스트**:
-   - PC 분석 엔진 테스트: `start.bat` (또는 `python pc/main.py`)
-   - OCI 텔레그램 알림 테스트: `python oci/main.py`
+4. **실행 테스트**:
+   - PC 분석 엔진 테스트: `.\.venv\Scripts\python pc/main.py`
+   - OCI 텔레그램 알림 및 크롤러 테스트: `.\.venv\Scripts\python oci/main.py`
