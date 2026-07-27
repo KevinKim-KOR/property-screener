@@ -17,18 +17,18 @@
 - `common/database.py`: DB 세션 관리 및 연결 로직 완료.
 - `common/config_loader.py`: `config.yaml` 및 `.env` 파일 로더 완벽 구현.
 
-### ✅ Phase 2: PC 분석 모듈 개발 (완료)
-- **`pc/ml_engine/scorer.py`**: 가상 데이터(또는 실데이터)를 기반으로 평당가, 하락률을 계산하여 기본 점수를 산출.
-- **`pc/basic_crawler/location_crawler.py`**: 카카오맵 로컬 API를 연동하여 단지의 좌표를 따고 반경 1.5km 내 지하철역 도보 거리를 계산해 추가 가점 부여 로직 반영 (REST API 키 연동 검증 완료).
-- **PC 실행 환경**: `start.bat`, `stop.bat`, `requirements.txt` 세팅 완료. 
+### ✅ Phase 2: PC 분석 모듈 및 시각적 HTML 대시보드 개발 (완료)
+- **`pc/ml_engine/scorer.py`**: 실데이터 기반 평당가 및 하락률을 계산하여 퀀트 점수 산출.
+- **`pc/basic_crawler/location_crawler.py`**: 카카오맵 로컬 API 연동으로 반경 1.5km 내 지하철역 도보 거리를 계산해 입지 가점 부여.
+- **`pc/viewer/generate_report.py` & `report.html`**: 로컬에서 PC 분석을 실행(`pc/main.py`)한 후, 그 결과를 눈으로 즉시 확인할 수 있도록 **다크모드 그래픽 대시보드 문서(`report.html`)**를 자동 생성하는 뷰어 모듈을 추가했습니다. (네이버 부동산 매물 바로가기 버튼 지원)
 
 ### ✅ Phase 3: OCI 스캐너 및 알리미 뼈대 개발 (완료)
-- **`oci/notifier/telegram_bot.py`**: PC에서 분석한 `ml_results.json`과 DB의 `sent_alerts` 테이블을 조인하여, 중복 발송 없이 신규 매물만 텔레그램으로 쏘는 로직 완성 (실제 텔레그램 봇 토큰 연동 및 알림 발송 검증 완료).
-- **`oci/main.py`**: OCI 파이프라인 진입점 테스트 완료.
+- **`oci/notifier/telegram_bot.py`**: 분석된 매물과 DB의 `sent_alerts` 테이블을 조인하여 중복 발송 없이 신규 매물만 텔레그램으로 알림.
+- **`oci/main.py`**: OCI 파이프라인 진입점 구성 완료.
 
-### ✅ Phase 4: 네이버 부동산 API 봇 차단(429 Error) 우회 해결 (완료)
-- **`oci/crawler/naver_crawler.py`**: `curl_cffi` (Chrome 120 TLS 지문 에뮬레이션) 및 메인 세션 쿠키 초기화 로직 적용.
-- 기존의 429 Too Many Requests 방화벽 차단을 우회하여 100개 이상의 아파트 단지 목록 API 수집(HTTP 200)에 성공함.
+### ✅ Phase 4: 네이버 부동산 API 봇 차단(429 Error) 우회 및 자동화 검증 체계 (완료)
+- **`oci/crawler/naver_crawler.py`**: `curl_cffi` (Chrome 120 TLS 지문 에뮬레이션) 및 DB 자동 적재 로직 완성.
+- **`tests/test_naver_crawler.py`**: 개발 및 검증 단계에서 사용자가 수많은 명령어를 수동으로 승인해야 하는 고역을 방지하기 위해, 크롤링부터 DB 적재까지 프로그램 내부에서 일괄 자동 검증하는 Automated Test Suite를 추가했습니다.
 
 ---
 

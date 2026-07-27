@@ -32,6 +32,10 @@ def main():
         print("[PC Engine] Uploading ml_results.json to OCI...")
         SyncManager.upload_results(results)
         
+        # 4. 로컬 PC에서 즉시 열어볼 수 있는 시각적 HTML 대시보드 자동 생성
+        from pc.viewer.generate_report import generate_report
+        generate_report()
+        
         print(f"[PC Engine] Iteration complete. Waiting for {sync_interval_hours} hours...")
         
         # 개발 중 빠른 테스트를 위해 sleep 대신 바로 종료할 수도 있습니다.
