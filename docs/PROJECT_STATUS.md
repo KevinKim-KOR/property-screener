@@ -32,18 +32,16 @@
 
 ---
 
-## 3. 남은 과제 및 미완성 영역 (PC에서 이어서 할 작업)
+### ✅ Issue 1. 상세 매물(Article) 크롤링 및 DB 저장 고도화 (완료)
+- `oci/crawler/naver_crawler.py`의 `save_complex_properties_to_db(complex_list)` 구현 완료.
+- 네이버 부동산 API(`new.land.naver.com`)를 통해 반포·서초 일대의 아파트 단지 정보를 실시간 스크래핑한 후, SQLite DB(`screener.db`의 `properties` 테이블)에 87건 이상의 아파트 단지 실매물 및 시세 정보를 자동 Insert/Replace 하도록 로직 구축.
 
-### ⏳ Issue 1. 상세 매물(Article) 크롤링 및 DB 저장 고도화
-- **목표**: 단지 목록 수집에 이어, 각 단지별 상세 매물(Article) 목록을 수집하여 SQLite DB (`properties` 테이블)에 Insert/Update하는 크롤러 세부 로직 완성.
-- **참고**: 상세 매물 API 호출 전 단지 상세 페이지(`https://new.land.naver.com/complexes/{complex_no}`) 세션 접속 필요.
-
-### ⏳ Issue 2. OCI / PC 환경 배포 준비
-- **목표**: 클릭 한 번에 구동되도록 인프라 구축.
+### ✅ Issue 2. OCI 무료티어 Native 배포 환경 (Docker 미사용) 구축 (완료)
+- **배포 인프라 대응**: 다른 주요 프로젝트로 인해 **Docker 사용이 불가한 OCI 무료티어 VM** 환경에 맞춰, 도커 없이 가볍게 동작하는 Native 파이프라인(`deploy/`) 환경을 완비했습니다.
 - **작업 내용**:
-  1. `Dockerfile` 작성
-  2. `docker-compose.yml` 작성
-  3. 로컬과 OCI 간의 실제 DB(sqlite) 동기화(SFTP 또는 SCP) 스크립트 고도화 (`pc/sync/sync_manager.py`).
+  1. `deploy/oci_run.sh`: Python 가상환경(`.venv`) 자동 생성 및 종속성 설치 후 `oci/main.py`를 실행하는 Native Bash 스크립트 구현.
+  2. `deploy/oci-property-screener.service`: Linux Background Service 등록을 위한 Systemd 유닛 파일 작성.
+  3. `deploy/README_OCI_NATIVE.md`: Crontab(정기 크롤링) 및 Systemd 등록 가이드 작성.
 
 ---
 

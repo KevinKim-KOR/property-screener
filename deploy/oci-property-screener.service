@@ -1,0 +1,17 @@
+[Unit]
+Description=PC-OCI Property Quant Screener - OCI Pipeline Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/property
+ExecStart=/home/ubuntu/property/deploy/oci_run.sh
+Restart=on-failure
+RestartSec=60
+
+# 환경변수 설정 파일 연결 (.env)
+EnvironmentFile=/home/ubuntu/property/.env
+
+[Install]
+WantedBy=multi-user.target
