@@ -186,6 +186,33 @@ def start_crawl(background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_crawler_task)
     return {"success": True, "message": "크롤링 및 분석 작업을 시작했습니다."}
 
+def _run_rescore_task():
+    global crawl_state
+    crawl_state["is_crawling"] = True
+    crawl_state["progress_msg"] = "로컬 DB 매물의 퀀트 점수 및 입지 가점 재계산 중 (API 미호출)..."
+    try:
+        MLEngine.run()
+        try:
+            from pc.viewer.generate_report import generate_report
+            generate_report()
+        except:
+            pass
+        crawl_state["progress_msg"] = "퀀트 점수 재계산 완료"
+        crawl_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        crawl_state["progress_msg"] = f"재계산 중 오류: {e}"
+    finally:
+        crawl_state["is_crawling"] = False
+
+@app.post("/api/rescore")
+def start_rescore(background_tasks: BackgroundTasks):
+    """네이버 크롤링 없이 로컬 DB 매물들의 퀀트 점수만 즉시 재계산합니다."""
+    if crawl_state["is_crawling"]:
+        return {"success": False, "message": "이미 분석/크롤링 작업이 진행 중입니다."}
+    
+    background_tasks.add_task(_run_rescore_task)
+    return {"success": True, "message": "퀀트 점수 재계산 작업을 시작했습니다."}
+
 @app.get("/api/status")
 def get_status():
     return crawl_state
@@ -415,7 +442,10 @@ def index_page():
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="font-size: 18px; color: #fff;">실시간 퀀트 점수 랭킹 매물 (총 <span id="propCount">0</span>건)</h2>
-                    <button onclick="loadProperties()" style="background: transparent; border: 1px solid var(--border); color: var(--text-main); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">새로고침 ↻</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="rescoreBtn" onclick="triggerRescore()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid var(--accent-green); color: var(--accent-green); padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 700;">⚡ 퀀트 점수 즉시 재계산 (API 미호출)</button>
+                        <button onclick="loadProperties()" style="background: transparent; border: 1px solid var(--border); color: var(--text-main); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">화면 새로고침 ↻</button>
+                    </div>
                 </div>
                 <table>
                     <thead>
@@ -531,6 +561,20 @@ def index_page():
                 }).join('');
             } catch (err) {
                 console.error(err);
+            }
+        }
+
+        async function triggerRescore() {
+            try {
+                const res = await fetch('/api/rescore', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    checkStatusLoop();
+                } else {
+                    alert(data.message);
+                }
+            } catch (err) {
+                alert('오류 발생: ' + err.message);
             }
         }
 
