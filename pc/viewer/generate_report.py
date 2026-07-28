@@ -1,61 +1,122 @@
 import json
-import os
+import sqlite3
 from pathlib import Path
 from datetime import datetime
 
 def generate_report():
     """
-    ml_results.json 결과를 분석하여 로컬 PC에서 즉시 확인할 수 있는 
-    시각적 HTML 대시보드(report.html)를 생성합니다.
+    screener.db (properties 테이블)의 단지 매물 메타정보와
+    ml_results.json의 퀀트 스코어를 조인하여 시각적 HTML 대시보드(report.html)를 생성합니다.
     """
     root_dir = Path(__file__).resolve().parent.parent.parent
+    db_path = root_dir / "screener.db"
     json_path = root_dir / "ml_results.json"
     output_html_path = Path(__file__).resolve().parent / "report.html"
 
-    if not json_path.exists():
-        print(f"[ReportGenerator] ml_results.json 파일이 없습니다. 경로: {json_path}")
-        return
+    # 1. ml_results.json 로드 (딕셔너리 또는 리스트 형태 모두 호환 처리)
+    ml_data = {}
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    ml_data = loaded
+                elif isinstance(loaded, list):
+                    for item in loaded:
+                        pid = item.get("property_id") or item.get("id") or str(len(ml_data)+1)
+                        ml_data[pid] = item
+        except Exception as e:
+            print(f"[ReportGenerator] ml_results.json 파싱 경고: {e}")
 
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"[ReportGenerator] JSON 파일 파싱 오류: {e}")
-        return
+    # 2. screener.db 에서 단지 정보 로드
+    properties = []
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM properties")
+            for row in cursor.fetchall():
+                pid = str(row["property_id"])
+                # ml_results.json의 점수와 조인 (없으면 기본값)
+                score_info = ml_data.get(pid, {})
+                score = score_info.get("ml_score", score_info.get("quant_score", 0.0))
+                
+                properties.append({
+                    "property_id": pid,
+                    "complex_code": str(row["complex_code"] or ""),
+                    "complex_name": str(row["complex_name"] or "Unknown"),
+                    "building_dong": str(row["building_dong"] or "-"),
+                    "floor": str(row["floor"] or "-"),
+                    "asking_price": float(row["asking_price"] or 0),
+                    "area_pyeong": float(row["area_pyeong"] or 0),
+                    "drop_rate": float(row["drop_rate"] or 0.0),
+                    "score": float(score)
+                })
+            conn.close()
+        except Exception as e:
+            print(f"[ReportGenerator] screener.db 조회 경고: {e}")
+
+    # 만약 DB가 비어있지만 ml_data에 항목이 있다면 ml_data 기준으로 복원
+    if not properties and ml_data:
+        for pid, val in ml_data.items():
+            if isinstance(val, dict):
+                properties.append({
+                    "property_id": pid,
+                    "complex_code": "",
+                    "complex_name": str(val.get("complex_name", pid)),
+                    "building_dong": str(val.get("building_dong", "-")),
+                    "floor": str(val.get("floor", "-")),
+                    "asking_price": float(val.get("asking_price", 0)),
+                    "area_pyeong": 34.0,
+                    "drop_rate": float(val.get("drop_rate", 0.0)),
+                    "score": float(val.get("ml_score", val.get("quant_score", 0.0)))
+                })
+
+    # 3. 점수 높은 순으로 정렬
+    properties.sort(key=lambda x: x["score"], reverse=True)
 
     generated_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    total_count = len(data)
-    top_score = data[0].get('quant_score', 0) if total_count > 0 else 0
-    top_complex = data[0].get('complex_name', '-') if total_count > 0 else '-'
+    total_count = len(properties)
+    top_score = properties[0]["score"] if total_count > 0 else 0.0
+    top_complex = properties[0]["complex_name"] if total_count > 0 else "-"
 
     rows_html = ""
-    for idx, item in enumerate(data, 1):
-        complex_code = item.get('complex_code', '')
-        name = item.get('complex_name', 'Unknown')
-        dong = item.get('building_dong', '-')
-        floor = item.get('floor', '-')
-        asking_price = item.get('asking_price', 0)
-        price_str = f"{asking_price / 10000:.2f}억" if asking_price >= 10000 else f"{asking_price:,}만"
-        score = item.get('quant_score', 0)
-        drop_rate = item.get('drop_rate', 0.0) * 100
-        location_score = item.get('location_score', 0.0)
-
-        badge_class = "badge-high" if score >= 80 else ("badge-mid" if score >= 65 else "badge-low")
-        naver_url = f"https://new.land.naver.com/complexes/{complex_code}" if complex_code else "https://new.land.naver.com/"
-
-        rows_html += f"""
+    if total_count == 0:
+        rows_html = """
         <tr>
-            <td class="rank-col">#{idx}</td>
-            <td><strong class="complex-name">{name}</strong> <span class="sub-info">({ dong } / { floor })</span></td>
-            <td><span class="price-text">{price_str}</span></td>
-            <td><span class="location-score">+{location_score}점</span></td>
-            <td>{drop_rate:.1f}%</td>
-            <td><span class="score-badge {badge_class}">{score:.1f}점</span></td>
-            <td>
-                <a href="{naver_url}" target="_blank" class="naver-btn">네이버 부동산 →</a>
+            <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">
+                현재 수집되거나 분석된 아파트 매물 데이터가 없습니다. oci/main.py 또는 크롤러를 실행해 데이터를 수집해주세요.
             </td>
         </tr>
         """
+    else:
+        for idx, item in enumerate(properties, 1):
+            complex_code = item["complex_code"]
+            name = item["complex_name"]
+            dong = item["building_dong"]
+            floor = item["floor"]
+            asking_price = item["asking_price"]
+            price_str = f"{asking_price / 10000:.2f}억" if asking_price >= 10000 else f"{int(asking_price):,}만"
+            score = item["score"]
+            drop_rate_pct = item["drop_rate"] * 100 if item["drop_rate"] < 1.0 else item["drop_rate"]
+
+            badge_class = "badge-high" if score >= 80 else ("badge-mid" if score >= 65 else "badge-low")
+            naver_url = f"https://new.land.naver.com/complexes/{complex_code}" if complex_code and complex_code != "0" else "https://new.land.naver.com/"
+
+            rows_html += f"""
+            <tr>
+                <td class="rank-col">#{idx}</td>
+                <td><strong class="complex-name">{name}</strong> <span class="sub-info">({dong} / {floor})</span></td>
+                <td><span class="price-text">{price_str}</span></td>
+                <td>{item['area_pyeong']}평</td>
+                <td>{drop_rate_pct:.1f}%</td>
+                <td><span class="score-badge {badge_class}">{score:.1f}점</span></td>
+                <td>
+                    <a href="{naver_url}" target="_blank" class="naver-btn">네이버 부동산 →</a>
+                </td>
+            </tr>
+            """
 
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -182,10 +243,6 @@ def generate_report():
             font-weight: 600;
             color: #ffffff;
         }}
-        .location-score {{
-            color: #3fb950;
-            font-weight: 600;
-        }}
         .score-badge {{
             display: inline-block;
             padding: 4px 12px;
@@ -235,7 +292,7 @@ def generate_report():
         <div class="header">
             <div class="title">
                 <h1>부동산 퀀트 스크리너 대시보드</h1>
-                <p>PC ML 스코어링 및 카카오 로컬 API 입지 가점 분석 결과 보고서</p>
+                <p>PC ML 스코어링 및 실거래 하락률 분석 결과 보고서</p>
             </div>
             <div>
                 <span style="color: var(--text-muted); font-size: 13px;">생성 일시: {generated_time}</span>
@@ -248,7 +305,7 @@ def generate_report():
                 <div class="value">{total_count}건</div>
             </div>
             <div class="summary-card">
-                <div class="label">최고 종합 퀀트 점수</div>
+                <div class="label">최고 퀀트 점수</div>
                 <div class="value" style="color: #3fb950;">{top_score:.1f}점</div>
             </div>
             <div class="summary-card">
@@ -264,8 +321,8 @@ def generate_report():
                         <th>순위</th>
                         <th>단지명 (동/층)</th>
                         <th>추정 매매가</th>
-                        <th>지하철역 입지 가점</th>
-                        <th>전고점 대비 하락률</th>
+                        <th>평형</th>
+                        <th>고점 대비 하락률</th>
                         <th>종합 퀀트 점수</th>
                         <th>실매물 확인</th>
                     </tr>
@@ -283,11 +340,11 @@ def generate_report():
 </body>
 </html>
 """
+    output_html_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
     
-    print(f"[ReportGenerator] 로컬 대시보드가 생성되었습니다 -> {output_html_path}")
-    print(f"               (탐색기나 웹 브라우저에서 report.html을 열면 그래픽으로 바로 확인 가능합니다)")
+    print(f"[ReportGenerator] 로컬 대시보드 생성 성공 -> {output_html_path}")
 
 if __name__ == "__main__":
     generate_report()
