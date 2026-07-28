@@ -6,3 +6,5 @@ requests
 python-dotenv
 curl_cffi
 playwright
+fastapi
+uvicorn
