@@ -69,6 +69,12 @@ PC에서 작업을 이어서 하실 때 아래 순서대로 실행하세요:
    TELEGRAM_BOT_TOKEN=봇토큰
    TELEGRAM_CHAT_ID=채팅방ID
    ```
-4. **실행 테스트**:
-   - PC 분석 엔진 테스트: `.\.venv\Scripts\python pc/main.py`
-   - OCI 텔레그램 알림 및 크롤러 테스트: `.\.venv\Scripts\python oci/main.py`
+4. **PC 원클릭 실행 (`start.bat` / `stop.bat`)**:
+   - `E:\AI Study\krx_alertor_modular` 프로젝트처럼 **원클릭 배치 파일**로 구동됩니다.
+   - **실행**: 프로젝트 루트의 **`start.bat`을 더블 클릭**하세요.
+     1. 기존 프로세스 Clean up (`stop.bat` 자동 호출)
+     2. 가상환경(`.venv`) 확인 및 종속성 자동 설치
+     3. 로컬 시각적 보고서(`report.html`) 사전 생성
+     4. 전용 콘솔 창(`"PC Property Quant Screener"`)에서 분석 파이프라인 구동
+     5. **기본 웹 브라우저가 자동 실행**되어 `pc/viewer/report.html` 대시보드를 바로 띄워줍니다.
+   - **종료**: 프로젝트 루트의 **`stop.bat`을 더블 클릭**하면 구동 중인 분석 창 및 파이프라인 프로세스가 정리됩니다.
