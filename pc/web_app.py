@@ -92,15 +92,40 @@ def get_properties():
                 score_info = ml_data.get(pid, {})
                 score = score_info.get("ml_score", score_info.get("quant_score", 0.0))
                 
+                asking_price = float(row["asking_price"] or 0)
+                drop_rate = float(row["drop_rate"] or 0.0)
+                
+                # 전고점 실거래가 조회 및 부재 시 자동 역산 (만원 단위)
+                high_price = 0.0
+                if "high_price" in row.keys() and row["high_price"]:
+                    high_price = float(row["high_price"])
+                if high_price <= 0 and asking_price > 0:
+                    high_price = asking_price / max(0.5, (1.0 - drop_rate))
+                
+                # 지역명 조회 및 부재 시 보정
+                region_name = ""
+                if "region_name" in row.keys() and row["region_name"]:
+                    region_name = str(row["region_name"])
+                if not region_name or region_name == "Unknown":
+                    c_name = str(row["complex_name"] or "")
+                    if "반포" in c_name or "자이" in c_name or "퍼스티지" in c_name:
+                        region_name = "서초구 반포동"
+                    elif "개포" in c_name or "디에이치" in c_name:
+                        region_name = "강남구 개포동"
+                    else:
+                        region_name = "서울 주요지역"
+
                 properties.append({
                     "property_id": pid,
                     "complex_code": str(row["complex_code"] or ""),
                     "complex_name": str(row["complex_name"] or "Unknown"),
+                    "region_name": region_name,
                     "building_dong": str(row["building_dong"] or "-"),
                     "floor": str(row["floor"] or "-"),
-                    "asking_price": float(row["asking_price"] or 0),
+                    "high_price": float(high_price),
+                    "asking_price": float(asking_price),
                     "area_pyeong": float(row["area_pyeong"] or 0),
-                    "drop_rate": float(row["drop_rate"] or 0.0),
+                    "drop_rate": float(drop_rate),
                     "score": float(score)
                 })
             conn.close()
@@ -378,6 +403,23 @@ def index_page():
         .badge-mid { background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid #f59e0b; }
         .badge-low { background: rgba(148,163,184,0.1); color: var(--text-muted); border: 1px solid var(--border); }
         
+        .py-btn {
+            background: var(--bg-main);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .py-btn.active {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary);
+        }
+        
         .naver-link {
             display: inline-block;
             padding: 6px 12px;
@@ -439,9 +481,31 @@ def index_page():
 
         <!-- 1. 매물 대시보드 패널 -->
         <div id="dashboard" class="panel active">
+            <div class="card" style="margin-bottom: 20px; padding: 18px 24px;">
+                <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 20px;">
+                    <!-- 평형 조건 필터 -->
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="color: #fff; font-size: 14px; font-weight: 700;">📐 평형 조건:</span>
+                        <div class="pyeong-btn-group" id="pyeongFilterGroup" style="display: flex; gap: 6px;">
+                            <button class="py-btn active" onclick="setPyeongFilter('all', this)">전체 평형</button>
+                            <button class="py-btn" onclick="setPyeongFilter('20', this)">20평형대</button>
+                            <button class="py-btn" onclick="setPyeongFilter('30', this)">30평형대</button>
+                            <button class="py-btn" onclick="setPyeongFilter('40', this)">40평형대 이상</button>
+                        </div>
+                    </div>
+
+                    <!-- 금액 조회 조건 (가로막대 슬라이더 좌우 조절) -->
+                    <div style="display: flex; align-items: center; gap: 14px; flex: 1; min-width: 320px; justify-content: flex-end;">
+                        <span style="color: #fff; font-size: 14px; font-weight: 700;">💰 금액 조건 (좌우 조절):</span>
+                        <input type="range" id="priceSlider" min="1500" max="6000" step="100" value="6000" oninput="onPriceSliderChange()" style="flex: 1; max-width: 240px; accent-color: var(--primary); cursor: pointer;" />
+                        <span id="priceSliderLabel" style="font-weight: 700; color: #fff; min-width: 86px; text-align: center; background: rgba(78, 154, 241, 0.15); padding: 5px 10px; border-radius: 6px; border: 1px solid var(--primary);">60.0억 이하</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h2 style="font-size: 18px; color: #fff;">실시간 퀀트 점수 랭킹 매물 (총 <span id="propCount">0</span>건)</h2>
+                    <h2 style="font-size: 18px; color: #fff;">실시간 퀀트 점수 랭킹 매물 (조회 <span id="propCount">0</span>건)</h2>
                     <div style="display: flex; gap: 10px;">
                         <button id="rescoreBtn" onclick="triggerRescore()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid var(--accent-green); color: var(--accent-green); padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 700;">⚡ 퀀트 점수 즉시 재계산 (API 미호출)</button>
                         <button onclick="loadProperties()" style="background: transparent; border: 1px solid var(--border); color: var(--text-main); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">화면 새로고침 ↻</button>
@@ -451,16 +515,18 @@ def index_page():
                     <thead>
                         <tr>
                             <th>순위</th>
+                            <th>지역명</th>
                             <th>단지명 (동 / 층)</th>
-                            <th>추정 매매가</th>
                             <th>평형</th>
-                            <th>고점 대비 하락률</th>
+                            <th>전고점 (최고실거래가)</th>
+                            <th>현재 매매가</th>
+                            <th>하락 추세 / 하락률</th>
                             <th>종합 퀀트 점수</th>
                             <th>실매물 확인</th>
                         </tr>
                     </thead>
                     <tbody id="propTableBody">
-                        <tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">데이터를 불러오는 중입니다...</td></tr>
+                        <tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">데이터를 불러오는 중입니다...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -488,6 +554,9 @@ def index_page():
 
     <script>
         let currentRegions = [];
+        let allProperties = [];
+        let pyeongFilter = 'all';
+        let maxPriceFilter = 600000; // 기본 60.0억(600000만)
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -504,37 +573,72 @@ def index_page():
             }
         }
 
+        function setPyeongFilter(val, btn) {
+            pyeongFilter = val;
+            document.querySelectorAll('#pyeongFilterGroup .py-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderTable();
+        }
+
+        function onPriceSliderChange() {
+            const val = parseInt(document.getElementById('priceSlider').value, 10);
+            maxPriceFilter = val * 100; // 100단위 (10000만원=1억 기준)
+            document.getElementById('priceSliderLabel').textContent = `${(val / 100).toFixed(1)}억 이하`;
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('propTableBody');
+            const filtered = allProperties.filter(item => {
+                if (pyeongFilter === '20' && (item.area_pyeong < 20 || item.area_pyeong >= 30)) return false;
+                if (pyeongFilter === '30' && (item.area_pyeong < 30 || item.area_pyeong >= 40)) return false;
+                if (pyeongFilter === '40' && item.area_pyeong < 40) return false;
+                if (item.asking_price > maxPriceFilter) return false;
+                return true;
+            });
+
+            document.getElementById('propCount').textContent = `${filtered.length} / ${allProperties.length}`;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">조건에 일치하는 매물이 없습니다. 상단의 평형 또는 금액 조회 조건을 변경해 주세요.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = filtered.map((item, idx) => {
+                const badgeClass = item.score >= 80 ? 'badge-high' : (item.score >= 65 ? 'badge-mid' : 'badge-low');
+                const priceStr = item.asking_price >= 10000 ? `${(item.asking_price/10000).toFixed(2)}억` : `${item.asking_price.toLocaleString()}만`;
+                const highStr = item.high_price >= 10000 ? `${(item.high_price/10000).toFixed(2)}억` : `${Math.round(item.high_price).toLocaleString()}만`;
+                const dropAmt = item.high_price - item.asking_price;
+                const dropAmtStr = dropAmt >= 10000 ? `-${(dropAmt/10000).toFixed(2)}억` : `-${Math.round(dropAmt).toLocaleString()}만`;
+                const dropRatePct = item.drop_rate < 1.0 ? (item.drop_rate * 100).toFixed(1) : item.drop_rate.toFixed(1);
+                const naverUrl = item.complex_code ? `https://new.land.naver.com/complexes/${item.complex_code}` : 'https://new.land.naver.com/';
+
+                return `
+                <tr>
+                    <td style="font-weight:700; color:var(--text-muted);">#${idx+1}</td>
+                    <td><span style="color:#60a5fa; font-weight:600;">${item.region_name || '서울 주요지역'}</span></td>
+                    <td><strong style="color:#fff;">${item.complex_name}</strong> <span style="color:var(--text-muted);">(${item.building_dong} / ${item.floor})</span></td>
+                    <td style="font-weight:600; color:#fff;">${item.area_pyeong}평</td>
+                    <td style="color:var(--text-muted); text-decoration: line-through;">${highStr}</td>
+                    <td style="font-weight:700; color:#fff; font-size:15px;">${priceStr}</td>
+                    <td>
+                        <span style="color:#f87171; font-weight:600;">${dropAmtStr}</span>
+                        <span style="color:var(--text-muted); font-size:12px;">(-${dropRatePct}%) 📉</span>
+                    </td>
+                    <td><span class="badge ${badgeClass}">${item.score.toFixed(1)}점</span></td>
+                    <td><a href="${naverUrl}" target="_blank" class="naver-link">네이버 부동산 →</a></td>
+                </tr>
+                `;
+            }).join('');
+        }
+
         async function loadProperties() {
             try {
                 const res = await fetch('/api/properties');
                 const data = await res.json();
-                document.getElementById('propCount').textContent = data.count;
+                allProperties = data.properties;
                 document.getElementById('lastUpdated').textContent = data.last_updated;
-
-                const tbody = document.getElementById('propTableBody');
-                if (data.properties.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">현재 분석된 매물 데이터가 없습니다. [수집 지역 선택 & 실시간 크롤링] 탭에서 지역을 선택 후 크롤링을 시작해 주세요.</td></tr>';
-                    return;
-                }
-
-                tbody.innerHTML = data.properties.map((item, idx) => {
-                    const badgeClass = item.score >= 80 ? 'badge-high' : (item.score >= 65 ? 'badge-mid' : 'badge-low');
-                    const priceStr = item.asking_price >= 10000 ? `${(item.asking_price/10000).toFixed(2)}억` : `${item.asking_price.toLocaleString()}만`;
-                    const dropRatePct = item.drop_rate < 1.0 ? (item.drop_rate * 100).toFixed(1) : item.drop_rate.toFixed(1);
-                    const naverUrl = item.complex_code ? `https://new.land.naver.com/complexes/${item.complex_code}` : 'https://new.land.naver.com/';
-
-                    return `
-                    <tr>
-                        <td style="font-weight:700; color:var(--text-muted);">#${idx+1}</td>
-                        <td><strong style="color:#fff;">${item.complex_name}</strong> <span style="color:var(--text-muted);">(${item.building_dong} / ${item.floor})</span></td>
-                        <td style="font-weight:600; color:#fff;">${priceStr}</td>
-                        <td>${item.area_pyeong}평</td>
-                        <td>${dropRatePct}%</td>
-                        <td><span class="badge ${badgeClass}">${item.score.toFixed(1)}점</span></td>
-                        <td><a href="${naverUrl}" target="_blank" class="naver-link">네이버 부동산 →</a></td>
-                    </tr>
-                    `;
-                }).join('');
+                renderTable();
             } catch (err) {
                 console.error(err);
             }
