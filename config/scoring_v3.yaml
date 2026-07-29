@@ -1,0 +1,97 @@
+version: "3.0.0"
+
+universe:
+  target_sgg: ["11650", "11680"]        # 서초구, 강남구 — 확장 금지 (C8)
+  min_peer_n: 20
+  peer_levels: ["UMD_AREA", "SGG_AREA", "BELT_AREA"]
+
+normalization:
+  clip_at: 3.0
+  mad_epsilon: 1e-9
+
+blocks:
+  value:
+    weight: 0.35
+    min_coverage: 2
+    factors:
+      excess_drop:   { weight: 0.45, direction:  1, peer_scope: BELT_AREA, phase: 1 }
+      jeonse_ratio:  { weight: 0.32, direction:  1, peer_scope: BELT_AREA, phase: 1 }
+      rent_yield:    { weight: 0.13, direction:  1, peer_scope: SGG_AREA,  phase: 1 }
+      relative_ppp:  { weight: 0.10, direction: -1, peer_scope: SGG_AREA,  phase: 3 }
+  flow:
+    weight: 0.25
+    min_coverage: 2
+    factors:
+      volume_ratio:      { weight: 0.30, direction:  1, peer_scope: BELT_AREA, phase: 1 }
+      momentum_3m:       { weight: 0.20, direction:  1, peer_scope: BELT_AREA, phase: 1 }
+      listing_delta_30d: { weight: 0.25, direction: -1, peer_scope: BELT_AREA, phase: 2 }
+      supply_pressure:   { weight: 0.25, direction: -1, peer_scope: BELT_AREA, phase: 2 }
+  location:
+    weight: 0.20
+    min_coverage: 2
+    factors:
+      subway_decay: { weight: 0.40, direction: 1, peer_scope: BELT_AREA, phase: 1 }
+      elem_school:  { weight: 0.20, direction: 1, peer_scope: BELT_AREA, phase: 1 }
+      cbd_access:   { weight: 0.40, direction: 1, peer_scope: BELT_AREA, phase: 3 }
+  quality:
+    weight: 0.20
+    min_coverage: 2
+    factors:
+      households_log: { weight: 0.30, direction: 1, peer_scope: BELT_AREA, phase: 1 }
+      age_curve:      { weight: 0.30, direction: 1, peer_scope: BELT_AREA, phase: 1 }
+      brand:          { weight: 0.15, direction: 1, peer_scope: BELT_AREA, phase: 1 }
+      far_score:      { weight: 0.25, direction: 1, peer_scope: BELT_AREA, phase: 3 }
+
+peak_detection:
+  lookback_months: 60
+  window_months: 3
+  percentile: 90
+  min_window_trades: 2
+  decay_tau: 36.0
+  decay_floor: 0.80
+
+location:
+  subway_decay_scale_m: 400.0
+  school_decay_scale_m: 300.0
+  cbd_half_min: 30.0
+  cbd_targets: ["강남역", "여의도역", "시청역"]
+
+age_curve_nodes:
+  - [0,  1.00]
+  - [5,  0.85]
+  - [15, 0.45]
+  - [25, 0.40]
+  - [32, 0.70]
+  - [40, 0.95]
+  - [50, 1.00]
+
+gates:
+  min_trades_12m: 3
+  max_special_deal_ratio: 0.30        # 백필 후 실분포 기준 재산정
+  max_unregistered_ratio: 0.20
+  unregistered_grace_days: 180
+  min_key_confidence: 0.85
+  min_total_coverage: 0.50            # Phase 1 실제 커버리지 0.667
+
+risk_multipliers:
+  jeonse_ratio_bottom_decile: 0.80
+  supply_pressure_top_decile: 0.70
+  redevelopment_dispute: 0.50
+  floor: 0.35
+
+l2:
+  floor_adj: { LOW: 0.95, MID: 1.00, HIGH: 1.03 }
+
+alert:
+  enabled_from_phase: 2               # Phase 1에서는 알림 비활성 (§8.3 Step 5)
+  excess_drop_percentile: 70
+  min_volume_ratio: 1.0
+  max_listing_delta: 0.0
+  min_market_score: 65
+  min_deal_gap_pct: 5.0
+
+backtest:
+  data_start: "2018-01"
+  lookback_months: 60
+  forward_months: 12
+  frequency: "Q"

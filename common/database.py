@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from datetime import datetime
 from contextlib import contextmanager
 from .config_loader import Config
 
@@ -18,20 +19,52 @@ def get_db_connection():
 
 def init_db():
     """
-    초기 DB 및 테이블을 생성하고 컬럼 마이그레이션을 자동으로 수행합니다.
+    초기 DB 및 테이블을 생성하고 SCORING_V2 마이그레이션(schema_version)을 자동으로 수행합니다.
     """
     from .models import get_schema_queries
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        # 1. 모든 DDL 쿼리(신규 테이블, 인덱스 포함) 실행
         for query in get_schema_queries():
             cursor.execute(query)
-        # 자동 스키마 마이그레이션 (region_name, high_price 컬럼 추가)
+        
+        # 2. 기존 v1 컬럼 자동 마이그레이션 (멱등성 보장)
         for alter_sql in [
             "ALTER TABLE properties ADD COLUMN region_name TEXT DEFAULT '';",
-            "ALTER TABLE properties ADD COLUMN high_price INTEGER DEFAULT 0;"
+            "ALTER TABLE properties ADD COLUMN high_price INTEGER DEFAULT 0;",
+            "ALTER TABLE properties ADD COLUMN change_1m REAL DEFAULT 0.0;",
+            "ALTER TABLE properties ADD COLUMN change_3m REAL DEFAULT 0.0;",
+            "ALTER TABLE properties ADD COLUMN change_6m REAL DEFAULT 0.0;"
         ]:
             try:
                 cursor.execute(alter_sql)
             except Exception:
                 pass
+        
+        # 3. schema_version 체크 및 001_scoring_v2 마이그레이션 실행
+        cursor.execute("SELECT version FROM schema_version WHERE version = 1")
+        row = cursor.fetchone()
+        if not row:
+            v2_alters = [
+                "ALTER TABLE properties ADD COLUMN area_type TEXT;",
+                "ALTER TABLE properties ADD COLUMN exclusive_area REAL;",
+                "ALTER TABLE properties ADD COLUMN deal_gap_pct REAL;",
+                "ALTER TABLE properties ADD COLUMN floor_grade TEXT;",
+                "ALTER TABLE properties ADD COLUMN score_v1 REAL;",
+                "ALTER TABLE properties ADD COLUMN last_seen_at TEXT;",
+                "ALTER TABLE complexes ADD COLUMN bonbun INTEGER;",
+                "ALTER TABLE complexes ADD COLUMN bubun INTEGER;",
+                "ALTER TABLE complexes ADD COLUMN road_name TEXT;"
+            ]
+            for alter_sql in v2_alters:
+                try:
+                    cursor.execute(alter_sql)
+                except Exception:
+                    pass
+            now_str = datetime.now().isoformat()
+            cursor.execute(
+                "INSERT OR IGNORE INTO schema_version (version, applied_at, description) VALUES (?, ?, ?)",
+                (1, now_str, "001_scoring_v2 initial schema and column migration")
+            )
+        
         conn.commit()

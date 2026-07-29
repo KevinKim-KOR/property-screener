@@ -34,3 +34,9 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Large Data & CSV files
+csv/
+data/
+*.csv
+
