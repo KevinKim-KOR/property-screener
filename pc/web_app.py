@@ -757,4 +757,4 @@ def index_page():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("pc.web_app:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("pc.web_app:app", host="127.0.0.1", port=8585, reload=False)

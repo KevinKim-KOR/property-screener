@@ -11,7 +11,12 @@ rem 1. Stop window titled "PC Property Quant Screener*"
 taskkill /FI "WINDOWTITLE eq PC Property Quant Screener*" /F /T >nul 2>&1
 if not errorlevel 1 set "found=1"
 
-rem 2. Stop by Port 8000 (FastAPI Web GUI)
+rem 2. Stop by Port 8585 & 8000 (FastAPI Web GUI)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":8585 " ^| findstr /C:"LISTENING"') do (
+    echo    - Port 8585 PID %%a terminated.
+    taskkill /F /PID %%a >nul 2>&1
+    set "found=1"
+)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":8000 " ^| findstr /C:"LISTENING"') do (
     echo    - Port 8000 PID %%a terminated.
     taskkill /F /PID %%a >nul 2>&1
