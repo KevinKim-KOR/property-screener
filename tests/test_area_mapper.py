@@ -4,39 +4,37 @@ from common.area_mapper import to_area_type, pyeong_to_area_type
 
 class TestAreaMapper(unittest.TestCase):
     def test_to_area_type_boundary_cases(self):
-        # 미달 (< 33.0)
-        self.assertIsNone(to_area_type(32.99))
+        # 미달 (< 50.0) 또는 초과 (>= 135.0)
+        self.assertIsNone(to_area_type(49.99))
         self.assertIsNone(to_area_type(0.0))
         self.assertIsNone(to_area_type(None))
+        self.assertIsNone(to_area_type(135.0))
+        self.assertIsNone(to_area_type(200.0))
 
-        # A40 : 33.0 <= x < 50.0
-        self.assertEqual(to_area_type(33.0), "A40")
-        self.assertEqual(to_area_type(49.99), "A40")
+        # 50~55
+        self.assertEqual(to_area_type(50.0), "A50_55")
+        self.assertEqual(to_area_type(54.99), "A50_55")
 
-        # A59 : 50.0 <= x < 70.0
-        self.assertEqual(to_area_type(50.0), "A59")
-        self.assertEqual(to_area_type(59.99), "A59")
-        self.assertEqual(to_area_type(69.99), "A59")
+        # 55~60
+        self.assertEqual(to_area_type(59.96), "A55_60")
 
-        # A84 : 70.0 <= x < 100.0
-        self.assertEqual(to_area_type(70.0), "A84")
-        self.assertEqual(to_area_type(84.93), "A84")
-        self.assertEqual(to_area_type(99.99), "A84")
+        # 80~85
+        self.assertEqual(to_area_type(84.93), "A80_85")
 
-        # A114 : 100.0 <= x < 135.0
-        self.assertEqual(to_area_type(100.0), "A114")
-        self.assertEqual(to_area_type(114.5), "A114")
-        self.assertEqual(to_area_type(134.99), "A114")
+        # 95~100
+        self.assertEqual(to_area_type(99.99), "A95_100")
 
-        # A135P : 135.0 <= x
-        self.assertEqual(to_area_type(135.0), "A135P")
-        self.assertEqual(to_area_type(200.0), "A135P")
+        # 100~105
+        self.assertEqual(to_area_type(100.0), "A100_105")
+
+        # 130~135
+        self.assertEqual(to_area_type(134.99), "A130_135")
 
     def test_pyeong_to_area_type_fallback(self):
-        self.assertEqual(pyeong_to_area_type("20PY"), "A59")
-        self.assertEqual(pyeong_to_area_type("30PY"), "A84")
-        self.assertEqual(pyeong_to_area_type("40PY"), "A114")
-        self.assertEqual(pyeong_to_area_type("20평형대"), "A59")
+        self.assertEqual(pyeong_to_area_type("20PY"), "A55_60")
+        self.assertEqual(pyeong_to_area_type("30PY"), "A80_85")
+        self.assertEqual(pyeong_to_area_type("40PY"), "A110_115")
+        self.assertEqual(pyeong_to_area_type("20평형대"), "A55_60")
         self.assertIsNone(pyeong_to_area_type(None))
 
 if __name__ == "__main__":

@@ -67,6 +67,8 @@ def get_schema_queries():
             bonbun            INTEGER,
             bubun             INTEGER,
             road_name         TEXT,
+            area_min_m2       REAL,
+            area_max_m2       REAL,
             updated_at        TEXT NOT NULL
         )
         """,
@@ -180,6 +182,10 @@ def get_schema_queries():
             far_score            REAL,
             special_deal_ratio   REAL,
             sample_count_12m     INTEGER,
+            sample_count_24m     INTEGER,
+            m3                   REAL,
+            m6                   REAL,
+            m12                  REAL,
             computed_at          TEXT NOT NULL,
             PRIMARY KEY (base_date, complex_code, area_type)
         )

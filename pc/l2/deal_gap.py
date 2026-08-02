@@ -86,8 +86,9 @@ def update_all_properties_l2(base_date: Optional[str] = None) -> int:
             ask = p.get("asking_price", 0) or 0
             high = p.get("high_price", 0) or 0
 
-            # area_type 결정 (exclusive_area 우선, 없으면 pyeong_to_area_type)
-            at = to_area_type(p.get("exclusive_area")) or p.get("area_type") or pyeong_to_area_type(p.get("area_pyeong")) or "A84"
+            # area_type 결정 (exclusive_area 우선, 없으면 pyeong_to_area_type, 기존 area_type, 폴백 A84 순)
+            at = to_area_type(p.get("exclusive_area")) or pyeong_to_area_type(p.get("area_pyeong")) or p.get("area_type") or "A84"
+
 
             # floor_grade 및 계수 결정
             f_grade, f_coeff = classify_floor_grade(p.get("floor"))

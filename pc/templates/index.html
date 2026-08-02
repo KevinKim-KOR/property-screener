@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>서초·강남 아파트 퀀트 스크리너 v4.2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #080c14;
+            --bg-card: rgba(19, 25, 36, 0.75);
+            --bg-glass: rgba(15, 23, 42, 0.85);
+            --border: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(59, 130, 246, 0.3);
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.35);
+            --accent-green: #10b981;
+            --accent-rose: #f43f5e;
+            --accent-amber: #f59e0b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg-main);
+            background-image: radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.08) 0%, transparent 45%),
+                              radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.05) 0%, transparent 45%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            font-family: var(--font);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Navbar */
+        .navbar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 32px;
+            background: rgba(8, 12, 20, 0.9);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo-area { display: flex; align-items: center; gap: 14px; }
+        .logo-badge {
+            background: linear-gradient(135deg, var(--primary), #06b6d4);
+            color: #fff; font-family: var(--font-display); font-weight: 800;
+            font-size: 13px; padding: 5px 12px; border-radius: 7px;
+            box-shadow: 0 0 12px var(--primary-glow);
+        }
+        .app-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; }
+        .app-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+        .status-pill {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+            padding: 6px 14px; border-radius: 16px; font-size: 12px; color: var(--text-muted);
+        }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+
+        /* Container */
+        .container { max-width: 1440px; margin: 0 auto; padding: 20px 24px; }
+
+        /* Tabs */
+        .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+        .tab-btn {
+            display: flex; align-items: center; gap: 8px;
+            padding: 10px 20px; border: 1px solid var(--border); border-radius: 8px;
+            background: transparent; color: var(--text-muted); cursor: pointer;
+            font-family: var(--font); font-size: 13px; font-weight: 500;
+            transition: all 0.2s;
+        }
+        .tab-btn.active { background: rgba(59,130,246,0.12); border-color: var(--border-highlight); color: #fff; }
+        .tab-count {
+            background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 10px;
+            font-size: 11px; font-weight: 600;
+        }
+        .tab-btn.active .tab-count { background: rgba(59,130,246,0.25); color: #93c5fd; }
+
+        /* Filter Bar */
+        .filter-bar {
+            display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+            padding: 12px 16px; margin-bottom: 16px;
+            background: var(--bg-glass); border: 1px solid var(--border); border-radius: 10px;
+        }
+        .filter-group { display: flex; align-items: center; gap: 6px; }
+        .filter-label { font-size: 12px; color: var(--text-dim); font-weight: 600; margin-right: 4px; }
+        .btn-filter {
+            padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); cursor: pointer;
+            font-family: var(--font); font-size: 12px; transition: all 0.15s;
+        }
+        .btn-filter.active { background: rgba(59,130,246,0.15); border-color: var(--border-highlight); color: #fff; }
+        .search-box {
+            padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+            background: rgba(255,255,255,0.04); color: #fff; font-family: var(--font);
+            font-size: 12px; width: 220px; outline: none;
+        }
+        .search-box:focus { border-color: var(--primary); }
+        input[type="range"] { accent-color: var(--primary); width: 120px; }
+
+        /* Table */
+        .data-table-wrap {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 10px; overflow: hidden;
+        }
+        .data-table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .data-table thead th {
+            background: rgba(15, 23, 42, 0.95);
+            padding: 10px 12px; text-align: left;
+            font-size: 11px; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.3px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap; cursor: pointer; user-select: none;
+            position: sticky; top: 0; z-index: 2;
+        }
+        .data-table thead th:hover { color: #fff; }
+        .data-table thead th .sort-arrow { margin-left: 4px; font-size: 10px; opacity: 0.4; }
+        .data-table thead th.sorted .sort-arrow { opacity: 1; color: var(--primary); }
+        .data-table tbody tr {
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            transition: background 0.15s;
+        }
+        .data-table tbody tr:hover { background: rgba(59, 130, 246, 0.06); }
+        .data-table td {
+            padding: 9px 12px; white-space: nowrap;
+        }
+        .data-table td.region { color: var(--text-muted); font-size: 12px; }
+        .data-table td.complex-name { font-weight: 600; color: #fff; }
+        .data-table td.complex-name a {
+            color: inherit; text-decoration: none;
+        }
+        .data-table td.complex-name a:hover { color: var(--primary); text-decoration: underline; }
+        .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .val-pos { color: var(--accent-green); }
+        .val-neg { color: var(--accent-rose); }
+        .val-zero { color: var(--text-dim); }
+        .badge-new-high {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 2px 6px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #ffffff;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            border-radius: 4px;
+            vertical-align: middle;
+            box-shadow: 0 1px 2px rgba(239, 68, 68, 0.3);
+        }
+        .empty-msg {
+            text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px;
+        }
+
+        /* Excluded table */
+        .data-table td.reason { color: var(--text-muted); font-size: 12px; max-width: 360px; white-space: normal; }
+
+        /* Footer */
+        .footer-bar {
+            margin-top: 20px; padding: 14px 20px;
+            background: var(--bg-glass); border: 1px solid var(--border); border-radius: 10px;
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 12px; color: var(--text-dim);
+        }
+        .footer-bar a { color: var(--primary); cursor: pointer; text-decoration: none; }
+        .footer-bar a:hover { text-decoration: underline; }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .navbar { padding: 12px 16px; }
+            .container { padding: 16px; }
+            .data-table { font-size: 12px; }
+            .data-table td, .data-table thead th { padding: 7px 8px; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="logo-area">
+            <span class="logo-badge">v4.2</span>
+            <div>
+                <div class="app-title">서초·강남 아파트 퀀트 스크리너</div>
+                <div class="app-subtitle">서초구·강남구 24개 법정동 실거래 기반</div>
+            </div>
+        </div>
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            <span id="updateTime">갱신 중...</span>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Tabs -->
+        <div class="tab-bar">
+            <button class="tab-btn active" id="tabActive" onclick="switchTab('active')">
+                <span>적격 매물</span>
+                <span class="tab-count" id="activeCountBadge">0</span>
+            </button>
+            <button class="tab-btn" id="tabExcluded" onclick="switchTab('excluded')">
+                <span>제외 매물</span>
+                <span class="tab-count" id="excludedCountBadge">0</span>
+            </button>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar" id="filterBar">
+            <div class="filter-group">
+                <span class="filter-label">지역</span>
+                <button class="btn-filter active" onclick="setRegionFilter('all')" id="btnRegAll">전체</button>
+                <button class="btn-filter" onclick="setRegionFilter('서초')" id="btnRegSeocho">서초구</button>
+                <button class="btn-filter" onclick="setRegionFilter('강남')" id="btnRegGangnam">강남구</button>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">평형</span>
+                <button class="btn-filter active" onclick="setPyeongFilter('all')" id="btnPyAll">전체</button>
+                <button class="btn-filter" onclick="setPyeongFilter('A59')" id="btnPy59">25평형</button>
+                <button class="btn-filter" onclick="setPyeongFilter('A84')" id="btnPy84">34평형</button>
+                <button class="btn-filter" onclick="setPyeongFilter('A114')" id="btnPy114">44평형+</button>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">금액</span>
+                <input type="range" id="priceSlider" min="0" max="1000000" step="10000" value="1000000" oninput="updatePriceLabel(); applyFilters()">
+                <span id="priceLabel" style="color: #fff; font-size: 12px; font-weight: 600;">전체</span>
+            </div>
+            <div class="filter-group">
+                <input type="text" class="search-box" id="searchInput" placeholder="단지명 검색..." oninput="applyFilters()">
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="data-table-wrap">
+            <table class="data-table" id="mainTable">
+                <thead id="tableHead"></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Footer §5.4 -->
+        <div class="footer-bar" id="footerBar">
+            <span id="footerSummary"></span>
+            <span id="footerDate"></span>
+        </div>
+    </main>
+
+    <script>
+        let allProperties = [];
+        let excludedProperties = [];
+        let activeTab = 'active';
+        let regionFilter = 'all';
+        let pyeongFilter = 'all';
+        let maxPriceFilter = 1000000;
+        let currentSort = { key: 'excess_drop_rate', dir: 'desc' };
+
+        async function initDashboard() {
+            try {
+                const res = await fetch('/api/properties');
+                const data = await res.json();
+                allProperties = data.properties || [];
+                excludedProperties = data.excluded_properties || [];
+                document.getElementById('activeCountBadge').textContent = allProperties.length;
+                document.getElementById('excludedCountBadge').textContent = excludedProperties.length;
+                document.getElementById('updateTime').textContent =
+                    '갱신: ' + (data.last_updated || '-');
+                updateFooter();
+                applyFilters();
+            } catch(e) {
+                document.getElementById('tableBody').innerHTML =
+                    '<tr><td colspan="10" class="empty-msg">데이터를 불러올 수 없습니다.</td></tr>';
+            }
+        }
+
+        function updateFooter() {
+            const total = allProperties.length + excludedProperties.length;
+            const shown = allProperties.length;
+            const excluded = excludedProperties.length;
+            document.getElementById('footerSummary').innerHTML =
+                `서초구·강남구 아파트 실거래 기준 · 대상 단지 ${total}곳 중 ${shown}곳 표시 · ${excluded}곳 제외 <a onclick="switchTab('excluded')">[제외 목록 보기]</a>`;
+            const now = new Date();
+            const y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,'0'), d = String(now.getDate()).padStart(2,'0');
+            document.getElementById('footerDate').textContent = `${y}년 ${m}월 ${d}일`;
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById('tabActive').classList.toggle('active', tab === 'active');
+            document.getElementById('tabExcluded').classList.toggle('active', tab === 'excluded');
+            // Reset sort for excluded tab
+            if (tab === 'excluded') currentSort = { key: 'gate_reason_kr', dir: 'asc' };
+            else currentSort = { key: 'excess_drop_rate', dir: 'desc' };
+            applyFilters();
+        }
+
+        function setRegionFilter(v) {
+            regionFilter = v;
+            document.querySelectorAll('#btnRegAll,#btnRegSeocho,#btnRegGangnam').forEach(b => b.classList.remove('active'));
+            if (v === 'all') document.getElementById('btnRegAll').classList.add('active');
+            else if (v === '서초') document.getElementById('btnRegSeocho').classList.add('active');
+            else document.getElementById('btnRegGangnam').classList.add('active');
+            applyFilters();
+        }
+
+        function setPyeongFilter(v) {
+            pyeongFilter = v;
+            document.querySelectorAll('#btnPyAll,#btnPy59,#btnPy84,#btnPy114').forEach(b => b.classList.remove('active'));
+            if (v === 'all') document.getElementById('btnPyAll').classList.add('active');
+            else if (v === 'A59') document.getElementById('btnPy59').classList.add('active');
+            else if (v === 'A84') document.getElementById('btnPy84').classList.add('active');
+            else document.getElementById('btnPy114').classList.add('active');
+            applyFilters();
+        }
+
+        function updatePriceLabel() {
+            const val = parseInt(document.getElementById('priceSlider').value, 10);
+            maxPriceFilter = val;
+            if (val >= 1000000) document.getElementById('priceLabel').textContent = '전체';
+            else document.getElementById('priceLabel').textContent = `${(val / 10000).toFixed(1)}억 이하`;
+        }
+
+        function matchPyeongFilter(itemAreaType, filterVal) {
+            if (filterVal === 'all') return true;
+            if (!itemAreaType) return false;
+            if (itemAreaType === filterVal) return true;
+            if (filterVal === 'A59') {
+                return itemAreaType === 'A59' || itemAreaType === 'A40' || (itemAreaType.startsWith('A') && parseInt(itemAreaType.substring(1), 10) < 70);
+            }
+            if (filterVal === 'A84') {
+                const val = parseInt(itemAreaType.substring(1), 10);
+                return itemAreaType === 'A84' || (itemAreaType.startsWith('A') && val >= 70 && val < 100);
+            }
+            if (filterVal === 'A114') {
+                const val = parseInt(itemAreaType.substring(1), 10);
+                return itemAreaType === 'A114' || itemAreaType === 'A135P' || (itemAreaType.startsWith('A') && val >= 100);
+            }
+            return false;
+        }
+
+        function applyFilters() {
+            const query = (document.getElementById('searchInput').value || '').toLowerCase();
+            const sourceList = activeTab === 'active' ? allProperties : excludedProperties;
+            const filtered = sourceList.filter(item => {
+                if (regionFilter !== 'all' && !(item.region_name || '').includes(regionFilter)) return false;
+                if (pyeongFilter !== 'all' && !matchPyeongFilter(item.area_type, pyeongFilter)) return false;
+                if (query && !(item.complex_name || '').toLowerCase().includes(query)) return false;
+                const priceVal = item.median_price_3m || item.asking_price || 0;
+                if (maxPriceFilter < 1000000 && priceVal > 0 && priceVal > maxPriceFilter) return false;
+                return true;
+            });
+            sortAndRender(filtered);
+        }
+
+        function sortAndRender(list) {
+            const k = currentSort.key;
+            const dir = currentSort.dir === 'asc' ? 1 : -1;
+            list.sort((a, b) => {
+                let va = a[k], vb = b[k];
+                if (va == null) va = '';
+                if (vb == null) vb = '';
+                if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+                return String(va).localeCompare(String(vb), 'ko') * dir;
+            });
+            renderTable(list);
+        }
+
+        function doSort(key) {
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'desc' ? 'asc' : 'desc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'desc';
+            }
+            applyFilters();
+        }
+
+        function fmtEok(val) {
+            if (!val || val <= 0) return '';
+            return (val / 10000).toFixed(1) + '억';
+        }
+
+        function fmtPctP(val) {
+            if (val == null || val === '' || val === 0) return '';
+            const s = val > 0 ? '+' + val.toFixed(1) : val.toFixed(1);
+            return s + '%p';
+        }
+
+        function fmtM(val) {
+            if (val == null || val === '') return '';
+            const pct = val * 100.0;
+            const s = pct > 0 ? '+' + pct.toFixed(1) : pct.toFixed(1);
+            return s + '%';
+        }
+
+        function fmtDropRate(val) {
+            if (val == null || val === '') return '';
+            if (val === 0) return '0.0%';
+            const actual = -val;
+            const s = actual > 0 ? '+' + actual.toFixed(1) : actual.toFixed(1);
+            return s + '%';
+        }
+
+        function fmtVol(val) {
+            if (val == null || val === '') return '';
+            if (val === 0 || val < 0.001) return '거래 없음';
+            return val.toFixed(1) + '배';
+        }
+
+        function pctClass(val) {
+            if (val > 0) return 'val-pos';
+            if (val < 0) return 'val-neg';
+            return 'val-zero';
+        }
+
+        function renderTable(list) {
+            const thead = document.getElementById('tableHead');
+            const tbody = document.getElementById('tableBody');
+
+            if (activeTab === 'active') {
+                const cols = [
+                    { key: 'region_name', label: '지역' },
+                    { key: 'complex_name', label: '단지명' },
+                    { key: 'area_type_str', label: '평형' },
+                    { key: 'median_price_3m', label: '최근 거래가' },
+                    { key: 'peak_price', label: '전고점' },
+                    { key: 'peak_date', label: '전고점 시점' },
+                    { key: 'drop_rate', label: '하락률' },
+                    { key: 'excess_drop_rate', label: '초과하락' },
+                    { key: 'm3', label: 'M3' },
+                    { key: 'm6', label: 'M6' },
+                    { key: 'm12', label: 'M12' },
+                    { key: 'trade_count_12m', label: '거래 건수' },
+                    { key: 'volume_ratio', label: '거래량비' },
+                ];
+                thead.innerHTML = '<tr>' + cols.map(c => {
+                    const isSorted = currentSort.key === c.key;
+                    const arrow = isSorted ? (currentSort.dir === 'asc' ? '▲' : '▼') : '▲';
+                    return `<th class="${isSorted ? 'sorted' : ''}" onclick="doSort('${c.key}')">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+                }).join('') + '</tr>';
+
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="13" class="empty-msg">조건에 일치하는 매물이 없습니다.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = list.map(item => {
+                    const naverUrl = item.naver_link || ('https://new.land.naver.com/complexes/' + (item.complex_code || ''));
+                    const nameLink = naverUrl ? `<a href="${naverUrl}" target="_blank">${item.complex_name}</a>` : item.complex_name;
+                    const badge = item.is_new_high ? '<span class="badge-new-high">신고가</span>' : '';
+                    const dropVal = item.drop_rate || 0;
+                    const exVal = item.excess_drop_rate || 0;
+                    const m3Val = item.m3;
+                    const m6Val = item.m6;
+                    const m12Val = item.m12;
+                    const tradeN = item.trade_count_12m || 0;
+                    return `<tr>
+                        <td class="region">${item.region_name || ''}</td>
+                        <td class="complex-name">${nameLink}${badge}</td>
+                        <td>${item.area_type_str || ''}</td>
+                        <td class="num">${fmtEok(item.median_price_3m)}</td>
+                        <td class="num">${fmtEok(item.peak_price)}</td>
+                        <td class="num">${item.peak_date || ''}</td>
+                        <td class="num ${pctClass(-dropVal)}">${item.is_new_high ? '0.0%' : fmtDropRate(dropVal)}</td>
+                        <td class="num ${pctClass(exVal)}">${fmtPctP(exVal)}</td>
+                        <td class="num ${pctClass(m3Val)}">${fmtM(m3Val)}</td>
+                        <td class="num ${pctClass(m6Val)}">${fmtM(m6Val)}</td>
+                        <td class="num ${pctClass(m12Val)}">${fmtM(m12Val)}</td>
+                        <td class="num">${tradeN ? tradeN + '건' : ''}</td>
+                        <td class="num">${fmtVol(item.volume_ratio)}</td>
+                    </tr>`;
+                }).join('');
+            } else {
+                // Excluded tab
+                const cols = [
+                    { key: 'region_name', label: '지역' },
+                    { key: 'complex_name', label: '단지명' },
+                    { key: 'area_type_str', label: '평형' },
+                    { key: 'gate_reason_kr', label: '제외 사유' },
+                ];
+                thead.innerHTML = '<tr>' + cols.map(c => {
+                    const isSorted = currentSort.key === c.key;
+                    const arrow = isSorted ? (currentSort.dir === 'asc' ? '▲' : '▼') : '▲';
+                    return `<th class="${isSorted ? 'sorted' : ''}" onclick="doSort('${c.key}')">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+                }).join('') + '</tr>';
+
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">조건에 일치하는 제외 매물이 없습니다.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = list.map(item => {
+                    return `<tr>
+                        <td class="region">${item.region_name || ''}</td>
+                        <td class="complex-name">${item.complex_name || ''}</td>
+                        <td>${item.area_type_str || ''}</td>
+                        <td class="reason">${item.gate_reason_kr || ''}</td>
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        window.onload = initDashboard;
+    </script>
+</body>
+</html>

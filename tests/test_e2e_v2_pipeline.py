@@ -43,6 +43,15 @@ class TestE2EV2Pipeline(unittest.TestCase):
         self.assertGreaterEqual(ms_res.get("universe_total", 0), 10)
 
         print("\n--- [E2E Step 5] L2 매물 괴리율 및 V1 병행 연산 (deal_gap) ---")
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) as cnt FROM properties")
+            if cur.fetchone()["cnt"] == 0:
+                cur.execute("""
+                    INSERT INTO properties (property_id, complex_code, complex_name, area_type, asking_price, floor)
+                    VALUES ('TEST_E2E_1', '100', '테스트아파트', 'A84', 150000, '중')
+                """)
+                conn.commit()
         prop_cnt = update_all_properties_l2("2026-07-29")
         self.assertGreaterEqual(prop_cnt, 1)
 

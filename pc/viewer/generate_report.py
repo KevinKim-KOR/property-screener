@@ -53,6 +53,28 @@ def generate_report():
                     "drop_rate": float(row["drop_rate"] or 0.0),
                     "score": float(score)
                 })
+            if not properties:
+                cursor.execute("SELECT * FROM complexes")
+                comp_map = {str(r["complex_code"]): dict(r) for r in cursor.fetchall()}
+                cursor.execute("SELECT * FROM market_scores WHERE base_date = (SELECT MAX(base_date) FROM market_scores)")
+                for row in cursor.fetchall():
+                    cc = str(row["complex_code"] or "")
+                    at = str(row["area_type"] or "")
+                    comp = comp_map.get(cc, {})
+                    min_a = float(comp.get("area_min_m2") or 0.0)
+                    max_a = float(comp.get("area_max_m2") or 0.0)
+                    avg_pyeong = round((min_a + max_a) / 2.0 / 3.30578, 1) if max_a > 0 else 32.0
+                    properties.append({
+                        "property_id": f"L1_{cc}_{at}",
+                        "complex_code": cc,
+                        "complex_name": str(comp.get("complex_name") or "국토부 단지"),
+                        "building_dong": "- (단지 전체)",
+                        "floor": "- (전체 평균)",
+                        "asking_price": 0,
+                        "area_pyeong": avg_pyeong,
+                        "drop_rate": 0.0,
+                        "score": float(row["market_score"] or 0.0)
+                    })
             conn.close()
         except Exception as e:
             print(f"[ReportGenerator] screener.db 조회 경고: {e}")

@@ -64,11 +64,11 @@ def compute_decay_factor(months_elapsed: float, tau: float = DECAY_TAU, floor: f
 
 def detect_robust_peak(trades: List[Dict], base_date: Optional[str] = None) -> Tuple[float, float, Optional[str], float]:
     """
-    거래 목록(trades: [{'deal_date': 'YYYY-MM-DD', 'deal_amount': int}, ...])에서
-    1) 60개월 이내의 거래를 필터링
-    2) 상위 90분위수(p90) 금액 및 해당 시점을 탐지 -> peak_price_raw, peak_date
-    3) 시간 감쇠 인자를 적용 -> peak_price_adj, decay_factor
-    반환: (peak_price_raw, peak_price_adj, peak_date, decay_factor)
+    SCORING_DESIGN_v4.2 전고점 산출:
+    1) 최근 60개월 내 유효거래 전체를 한 줄로 세워 상위 95% 지점(p95) 값을 기록
+    2) 그 값(p95)에 해당하는(가장 가까운) 거래의 계약월(YYYY.MM)을 전고점 시점으로 반환
+    3) 3개월 창과 창당 최소 건수는 폐지
+    4) 시간 감쇠는 적용하지 않는다 (decay_factor = 1.0, peak_adj = peak_raw).
     """
     if not trades:
         return 0.0, 0.0, None, 1.0
@@ -78,32 +78,24 @@ def detect_robust_peak(trades: List[Dict], base_date: Optional[str] = None) -> T
     # 60개월 이내 거래만 필터링
     valid_trades = []
     for t in trades:
-        d = t.get("deal_date", "")
+        d = str(t.get("deal_date", "")).strip()[:10]
         amt = float(t.get("deal_amount", 0))
         if amt <= 0 or not d:
             continue
         months_ago = calculate_months_elapsed(d, base_date)
-        if months_ago <= 60.0:
+        if 0.0 <= months_ago <= 60.0:
             valid_trades.append({"deal_date": d, "deal_amount": amt, "months_ago": months_ago})
 
     if not valid_trades:
         return 0.0, 0.0, None, 1.0
 
-    # 금액 목록 p90 산출
-    amounts = [t["deal_amount"] for t in valid_trades]
-    peak_price_raw = calculate_percentile(amounts, 0.90)
+    p95 = calculate_percentile([t["deal_amount"] for t in valid_trades], 0.95)
 
-    # p90 이상인 거래 중 가장 최근 날짜를 peak_date로 설정
-    peak_candidates = [t for t in valid_trades if t["deal_amount"] >= peak_price_raw * 0.98]
-    if not peak_candidates:
-        peak_candidates = valid_trades
+    # p95와 가장 가까운 거래의 계약월을 전고점 시점으로 선택 (동점 시 더 최근 거래)
+    best_trade = min(
+        valid_trades,
+        key=lambda t: (abs(t["deal_amount"] - p95), -t["months_ago"]),
+    )
+    best_peak_dt = best_trade["deal_date"][:7].replace("-", ".")
 
-    # peak_date 및 경과 개월 수 산출
-    best_candidate = max(peak_candidates, key=lambda x: x["deal_amount"])
-    peak_date = best_candidate["deal_date"]
-    months_elapsed = calculate_months_elapsed(peak_date, base_date)
-
-    decay_factor = compute_decay_factor(months_elapsed, DECAY_TAU, DECAY_FLOOR)
-    peak_price_adj = peak_price_raw * decay_factor
-
-    return peak_price_raw, peak_price_adj, peak_date, decay_factor
+    return p95, p95, best_peak_dt, 1.0

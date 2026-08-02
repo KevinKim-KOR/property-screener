@@ -71,8 +71,9 @@ def run_scoring(base_date: Optional[str] = None, config_path: str = "config/scor
 
     with get_db_connection() as conn:
         cur = conn.cursor()
+        cur.execute("DELETE FROM market_scores WHERE base_date = ?", (base_date,))
         cur.execute("""
-            SELECT s.*, c.sgg_cd, c.umd_cd, c.region_name AS umd_nm, c.brand, c.subway_dist_m, c.elem_school_dist_m, c.cbd_transit_min, c.total_households
+            SELECT s.*, c.complex_name, c.sgg_cd, c.umd_cd, c.region_name AS umd_nm, c.brand, c.subway_dist_m, c.elem_school_dist_m, c.cbd_transit_min, c.total_households
             FROM complex_area_stats s
             LEFT JOIN complexes c ON s.complex_code = c.complex_code
             WHERE s.base_date = ?
