@@ -95,6 +95,14 @@
             font-family: var(--font); font-size: 12px; transition: all 0.15s;
         }
         .btn-filter.active { background: rgba(59,130,246,0.15); border-color: var(--border-highlight); color: #fff; }
+        .btn-dong {
+            padding: 4px 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 11px;
+        }
+        .btn-dong.active {
+            background: rgba(59,130,246,0.25); border-color: var(--primary);
+            color: #fff; font-weight: 600;
+        }
         .search-box {
             padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
             background: rgba(255,255,255,0.04); color: #fff; font-family: var(--font);
@@ -287,6 +295,21 @@
     </nav>
 
     <main class="container">
+        <!-- Data Reference Date Banner -->
+        <div id="dataRefBanner" style="margin-bottom: 16px; padding: 12px 18px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 13px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">📅</span>
+                <span id="dataRefText" style="font-weight: 500; color: #e2e8f0;">실거래 자료 확인 중...</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div id="dataRefWarning" style="display: none; font-weight: 600; font-size: 12px; padding: 4px 12px; border-radius: 6px;"></div>
+                <span id="refreshResult" style="display: none; font-size: 12px; color: var(--primary); font-weight: 500;"></span>
+                <button id="btnRefresh" onclick="startRefresh()" style="padding: 5px 14px; border-radius: 6px; border: 1px solid var(--primary); background: transparent; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s;">
+                    🔄 최신 자료 가져오기
+                </button>
+            </div>
+        </div>
+
         <!-- Tabs -->
         <div class="tab-bar">
             <button class="tab-btn active" id="tabActive" onclick="switchTab('active')">
@@ -321,6 +344,12 @@
             </div>
             <div class="filter-group">
                 <input type="text" class="search-box" id="searchInput" placeholder="단지명 검색..." oninput="applyFilters()">
+            </div>
+            <div class="filter-group" id="dongFilterGroup" style="width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <span class="filter-label">법정동</span>
+                <button class="btn-filter" onclick="selectAllDongs()" style="background: rgba(255,255,255,0.12); color: #fff;">전체 선택</button>
+                <button class="btn-filter" onclick="clearAllDongs()" style="background: rgba(255,255,255,0.06); color: #ccc;">전체 해제</button>
+                <div id="dongButtonsList" style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-left: 6px;"></div>
             </div>
         </div>
 
@@ -362,6 +391,191 @@
         let pyeongFilter = 'all';
         let maxPriceFilter = 1000000;
         let currentSort = { key: 'excess_drop_rate', dir: 'desc' };
+        let selectedDongs = new Set();
+
+        function initSelectedDongs(defaultDongs = []) {
+            const saved = localStorage.getItem('screener_selected_dongs');
+            if (saved) {
+                try {
+                    const arr = JSON.parse(saved);
+                    if (Array.isArray(arr)) {
+                        selectedDongs = new Set(arr);
+                        return;
+                    }
+                } catch(e) {}
+            }
+            selectedDongs = new Set(defaultDongs);
+        }
+
+        function saveSelectedDongs() {
+            localStorage.setItem('screener_selected_dongs', JSON.stringify(Array.from(selectedDongs)));
+        }
+
+        function getDongGu(item) {
+            const dong = item.dong_name || item.region_name || '';
+            return item.gu_name || (['내곡동','신원동','양재동','방배동','우면동','서초동','반포동','잠원동'].includes(dong) ? '서초구' : '강남구');
+        }
+
+        function getVisibleDongsList() {
+            const dongSet = new Set();
+            allProperties.forEach(item => {
+                const dong = item.dong_name || item.region_name || '';
+                if (!dong) return;
+                const gu = getDongGu(item);
+                if (regionFilter !== 'all') {
+                    if (regionFilter === '서초' && gu !== '서초구' && !(item.region_name || '').includes('서초')) return;
+                    if (regionFilter === '강남' && gu !== '강남구' && !(item.region_name || '').includes('강남')) return;
+                }
+                dongSet.add(dong);
+            });
+            return Array.from(dongSet);
+        }
+
+        function renderDongButtons() {
+            const container = document.getElementById('dongButtonsList');
+            if (!container) return;
+
+            const dongCounts = {};
+            allProperties.forEach(item => {
+                const dong = item.dong_name || item.region_name || '';
+                if (!dong) return;
+                dongCounts[dong] = (dongCounts[dong] || 0) + 1;
+            });
+
+            const dongs = getVisibleDongsList().sort((a, b) => a.localeCompare(b, 'ko'));
+            let html = '';
+            dongs.forEach(dong => {
+                const cnt = dongCounts[dong] || 0;
+                if (cnt <= 0) return;
+                const activeCls = selectedDongs.has(dong) ? 'active' : '';
+                html += `<button class="btn-filter btn-dong ${activeCls}" onclick="toggleDong('${dong}')">${dong} (${cnt})</button>`;
+            });
+            container.innerHTML = html;
+        }
+
+        function toggleDong(dong) {
+            if (selectedDongs.has(dong)) {
+                selectedDongs.delete(dong);
+            } else {
+                selectedDongs.add(dong);
+            }
+            saveSelectedDongs();
+            renderDongButtons();
+            applyFilters();
+        }
+
+        function selectAllDongs() {
+            getVisibleDongsList().forEach(dong => selectedDongs.add(dong));
+            saveSelectedDongs();
+            renderDongButtons();
+            applyFilters();
+        }
+
+        function clearAllDongs() {
+            getVisibleDongsList().forEach(dong => selectedDongs.delete(dong));
+            saveSelectedDongs();
+            renderDongButtons();
+            applyFilters();
+        }
+
+        function updateDataRefBanner(data) {
+            const banner = document.getElementById('dataRefBanner');
+            const textEl = document.getElementById('dataRefText');
+            const warnEl = document.getElementById('dataRefWarning');
+            if (!banner || !textEl || !warnEl) return;
+
+            const refDate = data.data_ref_date;
+            const daysAgo = data.data_ref_days_ago;
+
+            if (!refDate || daysAgo == null) {
+                textEl.textContent = '실거래 자료 기준일을 확인할 수 없습니다.';
+                return;
+            }
+
+            const parts = refDate.split('-');
+            const y = parts[0];
+            const m = parseInt(parts[1], 10);
+            const d = parseInt(parts[2], 10);
+            const daysStr = daysAgo === 0 ? '오늘' : `${daysAgo}일 전`;
+
+            textEl.textContent = `실거래 자료 ${y}년 ${m}월 ${d}일 기준 · ${daysStr}`;
+
+            if (daysAgo > 30) {
+                banner.style.background = 'rgba(248, 113, 113, 0.1)';
+                banner.style.borderColor = 'rgba(248, 113, 113, 0.5)';
+                textEl.style.color = '#f87171';
+                warnEl.style.display = 'inline-block';
+                warnEl.style.background = 'rgba(248, 113, 113, 0.2)';
+                warnEl.style.color = '#f87171';
+                warnEl.style.border = '1px solid rgba(248, 113, 113, 0.4)';
+                warnEl.textContent = '자료가 오래되었습니다. 갱신이 필요합니다.';
+            } else if (daysAgo > 7) {
+                banner.style.background = 'rgba(251, 191, 36, 0.08)';
+                banner.style.borderColor = 'rgba(251, 191, 36, 0.4)';
+                textEl.style.color = '#fbbf24';
+                warnEl.style.display = 'none';
+            } else {
+                banner.style.background = 'rgba(255, 255, 255, 0.04)';
+                banner.style.borderColor = 'var(--border)';
+                textEl.style.color = '#e2e8f0';
+                warnEl.style.display = 'none';
+            }
+        }
+
+        async function startRefresh() {
+            const btn = document.getElementById('btnRefresh');
+            const resultEl = document.getElementById('refreshResult');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ 가져오는 중...';
+            btn.style.opacity = '0.6';
+            resultEl.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/refresh', { method: 'POST' });
+                const data = await res.json();
+                if (!data.success) {
+                    resultEl.textContent = data.message;
+                    resultEl.style.display = 'inline';
+                    resultEl.style.color = '#f87171';
+                    btn.innerHTML = '🔄 최신 자료 가져오기';
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    return;
+                }
+
+                // 폴링: 상태를 3초마다 체크
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await fetch('/api/status');
+                        const status = await statusRes.json();
+                        btn.innerHTML = '⏳ ' + (status.progress_msg || '처리 중...');
+
+                        if (!status.is_crawling) {
+                            clearInterval(pollInterval);
+                            btn.innerHTML = '🔄 최신 자료 가져오기';
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
+
+                            resultEl.textContent = '✓ ' + (status.progress_msg || '완료');
+                            resultEl.style.display = 'inline';
+                            resultEl.style.color = 'var(--primary)';
+
+                            // 2초 후 전체 새로고침으로 기준일·테이블 갱신
+                            setTimeout(() => location.reload(), 2000);
+                        }
+                    } catch (e) {
+                        // 폴링 에러 무시
+                    }
+                }, 3000);
+            } catch (e) {
+                resultEl.textContent = '네트워크 오류';
+                resultEl.style.display = 'inline';
+                resultEl.style.color = '#f87171';
+                btn.innerHTML = '🔄 최신 자료 가져오기';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        }
 
         async function initDashboard() {
             initColumns();
@@ -370,11 +584,14 @@
                 const data = await res.json();
                 allProperties = data.properties || [];
                 excludedProperties = data.excluded_properties || [];
+                initSelectedDongs(getVisibleDongsList());
                 document.getElementById('activeCountBadge').textContent = allProperties.length;
                 document.getElementById('excludedCountBadge').textContent = excludedProperties.length;
                 document.getElementById('updateTime').textContent =
                     '갱신: ' + (data.last_updated || '-');
+                updateDataRefBanner(data);
                 updateFooter();
+                renderDongButtons();
                 applyFilters();
             } catch(e) {
                 document.getElementById('tableBody').innerHTML =
@@ -411,6 +628,15 @@
             if (v === 'all') document.getElementById('btnRegAll').classList.add('active');
             else if (v === '서초') document.getElementById('btnRegSeocho').classList.add('active');
             else document.getElementById('btnRegGangnam').classList.add('active');
+
+            const visibleDongs = getVisibleDongsList();
+            const hasAnySelected = visibleDongs.some(d => selectedDongs.has(d));
+            if (!hasAnySelected) {
+                visibleDongs.forEach(d => selectedDongs.add(d));
+                saveSelectedDongs();
+            }
+
+            renderDongButtons();
             applyFilters();
         }
 
@@ -452,8 +678,15 @@
         function applyFilters() {
             const query = (document.getElementById('searchInput').value || '').toLowerCase();
             const sourceList = activeTab === 'active' ? allProperties : excludedProperties;
+
             const filtered = sourceList.filter(item => {
-                if (regionFilter !== 'all' && !(item.region_name || '').includes(regionFilter)) return false;
+                if (regionFilter !== 'all') {
+                    const gu = getDongGu(item);
+                    if (regionFilter === '서초' && gu !== '서초구' && !(item.region_name || '').includes('서초')) return false;
+                    if (regionFilter === '강남' && gu !== '강남구' && !(item.region_name || '').includes('강남')) return false;
+                }
+                const dong = item.dong_name || item.region_name || '';
+                if (!selectedDongs.has(dong)) return false;
                 if (pyeongFilter !== 'all' && !matchPyeongFilter(item.area_type, pyeongFilter)) return false;
                 if (query && !(item.complex_name || '').toLowerCase().includes(query)) return false;
                 const priceVal = item.median_price_3m || item.asking_price || 0;

@@ -61,6 +61,25 @@ crawl_state = {
     "last_updated": None
 }
 
+def get_data_reference_date():
+    """data/raw/molit/ 폴더 내 매매 CSV 또는 API 갱신 마커가 있는 가장 최신 날짜 폴더명을 반환합니다."""
+    base_dir = os.path.join(str(root_dir), "data", "raw", "molit")
+    if not os.path.exists(base_dir):
+        return None
+    folders = []
+    for name in os.listdir(base_dir):
+        p = os.path.join(base_dir, name)
+        if os.path.isdir(p):
+            children = os.listdir(p)
+            has_csv = any(f.endswith(".csv") and "매매" in f for f in children)
+            has_marker = "_api_refresh.txt" in children
+            if has_csv or has_marker:
+                folders.append(name)
+    if not folders:
+        return None
+    folders.sort(reverse=True)
+    return folders[0]
+
 class RegionItem(BaseModel):
     name: str
     code: str
@@ -159,9 +178,10 @@ def get_properties():
 
                 score_v1 = float(row["score_v1"] or 0.0)
 
-                region_name = str(row["region_name"] or "")
-                if not region_name or region_name == "Unknown":
-                    region_name = "서초구 반포동" if "반포" in str(row["complex_name"]) else "서울 주요지역"
+                sgg = str(comp.get("sgg_cd") or "")
+                gu_name = "서초구" if sgg == "11650" else ("강남구" if sgg == "11680" else "기타구")
+                dong_name = str(comp.get("region_name") or "기타동")
+                region_name = dong_name
 
                 # V2 / V6 가격 정합성 게이트 검증 (SCORING_V3.1_DESIGN.md §11.5)
                 # 위반 시 UI 목록(L2)에 렌더링하지 않고 진단 로그 출력
@@ -180,6 +200,8 @@ def get_properties():
                     "complex_code": cc,
                     "complex_name": str(row["complex_name"] or "Unknown"),
                     "region_name": region_name,
+                    "gu_name": gu_name,
+                    "dong_name": dong_name,
                     "building_dong": str(row["building_dong"] or "-"),
                     "floor": str(row["floor"] or "-"),
                     "floor_grade": str(row["floor_grade"] or "MID"),
@@ -266,11 +288,17 @@ def get_properties():
                         "gate_reason": ms.get("gate_reason"),
                     }
 
+                    sgg = str(comp.get("sgg_cd") or "")
+                    gu_name = "서초구" if sgg == "11650" else ("강남구" if sgg == "11680" else "기타구")
+                    dong_name = str(comp.get("region_name") or "기타동")
+
                     prop_data = {
                         "property_id": f"L1_{cc}_{at}",
                         "complex_code": cc,
                         "complex_name": str(comp.get("complex_name") or "국토부 단지"),
-                        "region_name": str(comp.get("region_name") or "서울"),
+                        "region_name": dong_name,
+                        "gu_name": gu_name,
+                        "dong_name": dong_name,
                         "building_dong": "단지 전체",
                         "floor": "평균 층",
                         "area_pyeong": avg_pyeong,
@@ -325,10 +353,21 @@ def get_properties():
             print(f"[WebGUI] DB read error: {e}")
 
     properties.sort(key=lambda x: x.get("excess_drop_rate", 0.0) or 0.0, reverse=True)
+    ref_date_str = get_data_reference_date()
+    days_ago = None
+    if ref_date_str:
+        try:
+            ref_dt = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
+            today_dt = datetime.now().date()
+            days_ago = (today_dt - ref_dt).days
+        except Exception:
+            pass
     return {
         "count": len(properties),
         "excluded_count": len(excluded_properties),
         "last_updated": crawl_state["last_updated"] or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "data_ref_date": ref_date_str,
+        "data_ref_days_ago": days_ago,
         "properties": properties,
         "excluded_properties": excluded_properties
     }
@@ -491,6 +530,74 @@ def start_rescore(background_tasks: BackgroundTasks):
 @app.get("/api/status")
 def get_status():
     return crawl_state
+
+
+def _run_refresh_task():
+    """국토부 API 증분 갱신 → 재계산 → 기준일 갱신 백그라운드 태스크."""
+    try:
+        crawl_state["is_crawling"] = True
+        crawl_state["progress_msg"] = "API 데이터 가져오는 중..."
+
+        from oci.crawler.molit_client import run_incremental_update
+        result = run_incremental_update(months=3)
+
+        trade_new = result.get("trade_new", 0)
+        rent_new = result.get("rent_new", 0)
+        trade_dup = result.get("trade_dup", 0)
+        rent_dup = result.get("rent_dup", 0)
+
+        crawl_state["progress_msg"] = f"신규 매매 {trade_new}건 · 전월세 {rent_new}건 · 갱신 {trade_dup + rent_dup}건 — 재계산 중..."
+
+        # 재계산
+        try:
+            from pc.scoring.quant_scorer import run_scoring
+            from pc.scoring.l2_match import update_all_properties_l2
+            run_scoring()
+            update_all_properties_l2()
+        except Exception as e2:
+            print(f"[Refresh Rescore Error] {e2}")
+
+        try:
+            from pc.viewer.generate_report import generate_report
+            generate_report()
+        except:
+            pass
+
+        # 기준일을 현재로 갱신 (data/raw/molit/ 폴더에 오늘 날짜 디렉토리 생성)
+        import os
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        refresh_dir = os.path.join(str(root_dir), "data", "raw", "molit", today_str)
+        os.makedirs(refresh_dir, exist_ok=True)
+        # API 갱신 마커 파일 생성
+        marker_path = os.path.join(refresh_dir, "_api_refresh.txt")
+        with open(marker_path, "w", encoding="utf-8") as f:
+            f.write(f"API incremental update at {datetime.now().isoformat()}\n")
+            f.write(f"trade_new={trade_new}, rent_new={rent_new}, trade_dup={trade_dup}, rent_dup={rent_dup}\n")
+
+        crawl_state["progress_msg"] = f"완료 · 신규 {trade_new + rent_new}건 · 갱신 {trade_dup + rent_dup}건"
+        crawl_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        crawl_state["last_refresh_result"] = {
+            "trade_new": trade_new,
+            "rent_new": rent_new,
+            "trade_dup": trade_dup,
+            "rent_dup": rent_dup,
+            "errors": result.get("errors", []),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        crawl_state["progress_msg"] = f"갱신 중 오류: {e}"
+    finally:
+        crawl_state["is_crawling"] = False
+
+
+@app.post("/api/refresh")
+def start_refresh(background_tasks: BackgroundTasks):
+    """국토부 API에서 최근 3개월 데이터를 가져와 DB에 적재하고 재계산합니다."""
+    if crawl_state["is_crawling"]:
+        return {"success": False, "message": "이미 분석/갱신 작업이 진행 중입니다."}
+    
+    background_tasks.add_task(_run_refresh_task)
+    return {"success": True, "message": "실거래 자료 갱신을 시작했습니다."}
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():

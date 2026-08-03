@@ -145,6 +145,19 @@ DB 연결(`init_db()`) 시 스키마가 자동으로 마이그레이션되어 �
 
 ---
 
+### 3.5 국토교통부 실거래가 API 증분 갱신 및 데이터 기준일 배너 (`oci/crawler/molit_client.py`)
+- **실거래가 API 실시간 증분 적재 (`/api/refresh`)**:
+  - 국토교통부 공공데이터포털 매매 상세(`RTMSDataSvcAptTradeDev`) 및 전월세(`RTMSDataSvcAptRent`) API와 연동합니다.
+  - 웹 대시보드 상단의 **`[🔄 최신 자료 가져오기]`** 버튼 클릭 시 백그라운드에서 최근 3개월 실거래 데이터를 조회하여 DB(`trades_sale`, `trades_rent`)에 `INSERT OR REPLACE`로 증분 적재하고, 5-Factor 퀀트 점수 및 매물 매칭을 자동 재계산합니다.
+  - CSV(`"-", ""`)와 API(`" "`)의 빈 값 표기 차이를 `normalize_value()`로 정규화하고, 본번/부번 0패딩 문자열 정수화 및 토지임대부(`land_leasehold`) 플래그를 정확히 적재합니다.
+- **데이터 기준일 표시 배너**:
+  - `data/raw/molit/` 폴더 내 매매 CSV 또는 갱신 마커(`_api_refresh.txt`) 디렉토리를 탐색하여 계산일이 아닌 실제 자료 기준일과 경과 일수를 표시합니다 (예: `실거래 자료 2026년 8월 3일 기준 · 오늘`).
+  - 경과 기간에 따라 7일 이하(흰색), 7일 초과(노란색), 30일 초과(빨간색 + `"자료가 오래되었습니다. 갱신이 필요합니다."` 경고 배지)로 자동 동적 스타일링됩니다.
+- **법정동 다중 선택 필터**:
+  - 구(서초구/강남구) 선택 시 해당 구 내 적격 매물이 존재하는 법정동만 표시하며, 각 법정동 버튼 옆에 건수를 부착합니다 (예: `반포동 (26)`). 선택 상태는 브라우저 LocalStorage에 기억됩니다.
+
+---
+
 ## 4. 시스템 설치 및 간편 실행 가이드 (Quick Start Guide)
 
 ### 4.1 Windows 환경 원클릭 실행 (`start.bat` / `stop.bat`)
@@ -164,8 +177,13 @@ DB 연결(`init_db()`) 시 스키마가 자동으로 마이그레이션되어 �
 ---
 
 ## 5. 변경 이력 및 릴리즈 노트 (Release Notes)
+- **v4.3.0 (2026-08-03)**
+  - `oci/crawler/molit_client.py`: 국토부 실거래가 매매 상세 및 전월세 API 실시간 증분 갱신 모듈 및 정규화(`normalize_value`) 도입.
+  - `web_app.py`, `templates/index.html`: 데이터 기준일 배너 및 `_api_refresh.txt` 마커 연동, 상단 `[🔄 최신 자료 가져오기]` 증분 갱신 버튼 UI 구현.
+  - 법정동 다중 선택 필터 및 적격 매물 건수 표시, 브라우저 LocalStorage 기억 지원.
 - **v1.0.0 (2026-07-29)**
   - `web_app.py`: 웹 대시보드 11개 컬럼 순서 개편, 전고점 취소선 제거, 1M/3M/6M 한국식 시세 추세 컬러 표기(▲ 적색/▼ 청색) 적용.
   - `pc/ml_engine/scorer.py`: 100점 만점 5-Factor 전문 부동산 퀀트 투자 모델(Valuation 30 / Momentum 25 / Location 20 / Scale 15 / Floor 10) 정식 도입.
   - `oci/crawler/naver_crawler.py`: 20평형대, 30평형대에 이어 **40평형대 매물(40PY)** 수집 로직 및 1M/3M/6M 변동률 산출 로직 반영.
   - `common/database.py`: DB 자동 스키마 마이그레이션 로직 강화.
+

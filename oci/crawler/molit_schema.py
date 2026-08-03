@@ -8,6 +8,19 @@ from dataclasses import dataclass
 from typing import Optional
 from common.area_mapper import to_area_type
 
+
+def normalize_value(val) -> Optional[str]:
+    """
+    CSV("-", "") 및 API(공백 한 칸 " ") 양쪽에서 빈 값을 통일하여 None으로 만든다.
+    유효한 값이면 strip된 문자열을 반환한다.
+    """
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s == "-":
+        return None
+    return s
+
 # 서울 자치구 매핑 (서초구 11650, 강남구 11680)
 SGG_NAME_TO_CODE = {
     "서초구": "11650",
@@ -40,22 +53,20 @@ def parse_region_string(region_str: str):
     return sgg_cd, umd_nm
 
 def parse_int_safe(val) -> Optional[int]:
-    if val is None:
+    s = normalize_value(val)
+    if s is None:
         return None
-    s = str(val).replace(",", "").strip()
-    if not s or s == "-" or s == "":
-        return None
+    s = s.replace(",", "")
     try:
         return int(float(s))
     except (ValueError, TypeError):
         return None
 
 def parse_float_safe(val) -> Optional[float]:
-    if val is None:
+    s = normalize_value(val)
+    if s is None:
         return None
-    s = str(val).replace(",", "").strip()
-    if not s or s == "-" or s == "":
-        return None
+    s = s.replace(",", "")
     try:
         return float(s)
     except (ValueError, TypeError):
@@ -66,11 +77,11 @@ def parse_date_safe(ymd_str: str, day_str: Optional[str] = None) -> str:
     ymd_str="202607", day_str="16" -> "2026-07-16"
     또는 ymd_str="YY.MM.DD" / "YYYY-MM-DD" 포맷 변환
     """
-    if not ymd_str or str(ymd_str).strip() in ("-", ""):
+    s = normalize_value(ymd_str)
+    if s is None:
         return ""
-    s = str(ymd_str).strip()
-    if day_str and str(day_str).strip() not in ("-", ""):
-        d = str(day_str).strip().zfill(2)
+    if day_str and normalize_value(day_str):
+        d = normalize_value(day_str).zfill(2)
         if len(s) == 6:  # YYYYMM
             return f"{s[:4]}-{s[4:6]}-{d}"
     if "." in s:
@@ -107,6 +118,7 @@ class CanonicalTrade:
     deal_type: Optional[str]
     agent_region: Optional[str]
     registry_date: Optional[str]
+    land_leasehold: Optional[str]
     source: str
     source_snapshot_date: Optional[str]
 
@@ -134,8 +146,8 @@ class CanonicalTrade:
         
         bonbun = parse_int_safe(row.get("본번"))
         bubun = parse_int_safe(row.get("부번"))
-        road_name = row.get("도로명", "").strip() or None
-        apt_name_raw = row.get("단지명", "").strip()
+        road_name = normalize_value(row.get("도로명"))
+        apt_name_raw = normalize_value(row.get("단지명"))
         if not apt_name_raw:
             return None
 
@@ -152,22 +164,18 @@ class CanonicalTrade:
         if deal_amount is None or deal_amount <= 0:
             return None
 
-        building_dong = row.get("동", "").strip()
-        if building_dong in ("-", ""):
-            building_dong = None
+        building_dong = normalize_value(row.get("동"))
 
         floor = parse_int_safe(row.get("층"))
-        buyer_type = row.get("매수자", "").strip() or None
-        seller_type = row.get("매도자", "").strip() or None
+        buyer_type = normalize_value(row.get("매수자"))
+        seller_type = normalize_value(row.get("매도자"))
         build_year = parse_int_safe(row.get("건축년도"))
 
         cancel_date = parse_date_safe(row.get("해제사유발생일", ""))
         is_cancelled = 1 if cancel_date else 0
 
-        deal_type = row.get("거래유형", "").strip() or None
-        agent_region = row.get("중개사소재지", "").strip()
-        if agent_region in ("-", ""):
-            agent_region = None
+        deal_type = normalize_value(row.get("거래유형"))
+        agent_region = normalize_value(row.get("중개사소재지"))
         registry_date = parse_date_safe(row.get("등기일자", "")) or None
 
         trade_id = cls.generate_trade_id(
@@ -196,7 +204,106 @@ class CanonicalTrade:
             deal_type=deal_type,
             agent_region=agent_region,
             registry_date=registry_date,
+            land_leasehold=None,
             source="CSV",
+            source_snapshot_date=source_snapshot_date
+        )
+
+    @classmethod
+    def from_api_item(cls, item: dict, sgg_cd: str, deal_ymd: str, source_snapshot_date: str) -> Optional["CanonicalTrade"]:
+        """
+        국토부 매매 상세 API XML item(dict)으로부터 CanonicalTrade 인스턴스를 생성한다.
+        API 필드명(영문)을 CSV와 동일한 canonical 구조체로 정규화한다.
+        """
+        apt_name_raw = normalize_value(item.get("aptNm"))
+        if not apt_name_raw:
+            return None
+
+        umd_nm = normalize_value(item.get("umdNm")) or ""
+        # sgg_cd는 호출자가 전달하거나 API 응답에서 읽음
+        api_sgg = normalize_value(item.get("sggCd")) or sgg_cd
+
+        # 본번/부번: API는 0패딩 문자열("0160", "0002") → 정수로 변환
+        bonbun = parse_int_safe(item.get("bonbun"))
+        bubun = parse_int_safe(item.get("bubun"))
+
+        road_name = normalize_value(item.get("roadNm"))
+
+        exclusive_area = parse_float_safe(item.get("excluUseAr"))
+        if exclusive_area is None:
+            return None
+        area_type = to_area_type(exclusive_area)
+
+        deal_year = normalize_value(item.get("dealYear"))
+        deal_month = normalize_value(item.get("dealMonth"))
+        deal_day = normalize_value(item.get("dealDay"))
+        if not deal_year or not deal_month or not deal_day:
+            return None
+        deal_date = f"{deal_year}-{deal_month.zfill(2)}-{deal_day.zfill(2)}"
+
+        deal_amount = parse_int_safe(item.get("dealAmount"))
+        if deal_amount is None or deal_amount <= 0:
+            return None
+
+        building_dong = normalize_value(item.get("aptDong"))
+        floor = parse_int_safe(item.get("floor"))
+        buyer_type = normalize_value(item.get("buyerGbn"))
+        seller_type = normalize_value(item.get("slerGbn"))
+        build_year = parse_int_safe(item.get("buildYear"))
+
+        # 해제사유발생일: API는 공백이면 미해제
+        cancel_date_raw = normalize_value(item.get("cdealDay"))
+        # cdealType도 확인 (해제여부)
+        cdeal_type = normalize_value(item.get("cdealType"))
+        if cancel_date_raw:
+            # cdealDay는 일자만 올 수 있고, 날짜 전체가 올 수도 있음
+            cancel_date = parse_date_safe(cancel_date_raw) or cancel_date_raw
+            is_cancelled = 1
+        elif cdeal_type and cdeal_type in ("O", "해제"):
+            is_cancelled = 1
+            cancel_date = None
+        else:
+            is_cancelled = 0
+            cancel_date = None
+
+        deal_type = normalize_value(item.get("dealingGbn"))
+        agent_region = normalize_value(item.get("estateAgentSggNm"))
+        registry_date = normalize_value(item.get("rgstDate"))
+        if registry_date:
+            registry_date = parse_date_safe(registry_date) or registry_date
+
+        # 토지임대부 플래그
+        land_leasehold_raw = normalize_value(item.get("landLeaseholdGbn"))
+        land_leasehold = land_leasehold_raw  # "N" / "Y" 등
+
+        trade_id = cls.generate_trade_id(
+            api_sgg, bonbun, bubun, apt_name_raw, exclusive_area, deal_date, floor, deal_amount
+        )
+
+        return cls(
+            trade_id=trade_id,
+            sgg_cd=api_sgg,
+            umd_nm=umd_nm,
+            bonbun=bonbun,
+            bubun=bubun,
+            road_name=road_name,
+            apt_name_raw=apt_name_raw,
+            exclusive_area=exclusive_area,
+            area_type=area_type,
+            deal_date=deal_date,
+            deal_amount=deal_amount,
+            building_dong=building_dong,
+            floor=floor,
+            buyer_type=buyer_type,
+            seller_type=seller_type,
+            build_year=build_year,
+            is_cancelled=is_cancelled,
+            cancel_date=cancel_date,
+            deal_type=deal_type,
+            agent_region=agent_region,
+            registry_date=registry_date,
+            land_leasehold=land_leasehold,
+            source="API",
             source_snapshot_date=source_snapshot_date
         )
 
@@ -236,7 +343,7 @@ class CanonicalRentTrade:
         if not sgg_cd:
             return None
 
-        apt_name_raw = row.get("단지명", "").strip()
+        apt_name_raw = normalize_value(row.get("단지명"))
         if not apt_name_raw:
             return None
 
@@ -255,7 +362,7 @@ class CanonicalRentTrade:
 
         monthly_rent = parse_int_safe(row.get("월세금(만원)")) or 0
         floor = parse_int_safe(row.get("층"))
-        contract_type = row.get("계약구분", "").strip() or None
+        contract_type = normalize_value(row.get("계약구분"))
 
         rent_id = cls.generate_rent_id(
             sgg_cd, apt_name_raw, exclusive_area, deal_date, floor, deposit, monthly_rent
@@ -264,6 +371,56 @@ class CanonicalRentTrade:
         return cls(
             rent_id=rent_id,
             sgg_cd=sgg_cd,
+            umd_nm=umd_nm,
+            apt_name_raw=apt_name_raw,
+            exclusive_area=exclusive_area,
+            area_type=area_type,
+            deal_date=deal_date,
+            deposit=deposit,
+            monthly_rent=monthly_rent,
+            floor=floor,
+            contract_type=contract_type
+        )
+
+    @classmethod
+    def from_api_item(cls, item: dict, sgg_cd: str) -> Optional["CanonicalRentTrade"]:
+        """
+        국토부 전월세 API XML item(dict)으로부터 CanonicalRentTrade 인스턴스를 생성한다.
+        """
+        apt_name_raw = normalize_value(item.get("aptNm"))
+        if not apt_name_raw:
+            return None
+
+        umd_nm = normalize_value(item.get("umdNm")) or ""
+        api_sgg = normalize_value(item.get("sggCd")) or sgg_cd
+
+        exclusive_area = parse_float_safe(item.get("excluUseAr"))
+        if exclusive_area is None:
+            return None
+        area_type = to_area_type(exclusive_area)
+
+        deal_year = normalize_value(item.get("dealYear"))
+        deal_month = normalize_value(item.get("dealMonth"))
+        deal_day = normalize_value(item.get("dealDay"))
+        if not deal_year or not deal_month or not deal_day:
+            return None
+        deal_date = f"{deal_year}-{deal_month.zfill(2)}-{deal_day.zfill(2)}"
+
+        deposit = parse_int_safe(item.get("deposit"))
+        if deposit is None or deposit <= 0:
+            return None
+
+        monthly_rent = parse_int_safe(item.get("monthlyRent")) or 0
+        floor = parse_int_safe(item.get("floor"))
+        contract_type = normalize_value(item.get("contractType"))
+
+        rent_id = cls.generate_rent_id(
+            api_sgg, apt_name_raw, exclusive_area, deal_date, floor, deposit, monthly_rent
+        )
+
+        return cls(
+            rent_id=rent_id,
+            sgg_cd=api_sgg,
             umd_nm=umd_nm,
             apt_name_raw=apt_name_raw,
             exclusive_area=exclusive_area,

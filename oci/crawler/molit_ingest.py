@@ -51,14 +51,16 @@ def ingest_sale_trades_to_db(trades: List[CanonicalTrade]) -> int:
                     apt_name_raw, exclusive_area, area_type, deal_date, deal_amount,
                     building_dong, floor, buyer_type, seller_type, build_year,
                     is_cancelled, cancel_date, deal_type, agent_region, registry_date,
-                    source, source_snapshot_date, first_seen_date, last_seen_date, ingested_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    land_leasehold, source, source_snapshot_date, first_seen_date,
+                    last_seen_date, ingested_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 t.trade_id, None, t.sgg_cd, t.umd_nm, t.bonbun, t.bubun, t.road_name,
                 t.apt_name_raw, t.exclusive_area, t.area_type, t.deal_date, t.deal_amount,
                 t.building_dong, t.floor, t.buyer_type, t.seller_type, t.build_year,
                 is_cancelled, t.cancel_date, t.deal_type, t.agent_region, t.registry_date,
-                t.source, t.source_snapshot_date, first_seen, t.source_snapshot_date, now_str
+                t.land_leasehold, t.source, t.source_snapshot_date, first_seen,
+                t.source_snapshot_date, now_str
             ))
             count += 1
         conn.commit()

@@ -115,6 +115,7 @@ def get_schema_queries():
             deal_type       TEXT,
             agent_region    TEXT,
             registry_date   TEXT,
+            land_leasehold  TEXT,
             source          TEXT NOT NULL,
             source_snapshot_date TEXT,
             first_seen_date TEXT,

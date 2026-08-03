@@ -66,5 +66,13 @@ def init_db():
                 "INSERT OR IGNORE INTO schema_version (version, applied_at, description) VALUES (?, ?, ?)",
                 (1, now_str, "001_scoring_v2 initial schema and column migration")
             )
+        # 4. land_leasehold 컬럼 마이그레이션 (v4.3 API 지원)
+        for alter_sql in [
+            "ALTER TABLE trades_sale ADD COLUMN land_leasehold TEXT;",
+        ]:
+            try:
+                cursor.execute(alter_sql)
+            except Exception:
+                pass
         
         conn.commit()
