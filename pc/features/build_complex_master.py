@@ -8,6 +8,24 @@ import hashlib
 from datetime import datetime
 from common.database import get_db_connection
 
+def extract_brand(name: str) -> str:
+    if not name:
+        return ""
+    brands = [
+        "래미안", "자이", "힐스테이트", "아이파크", "푸르지오", "롯데캐슬",
+        "더샵", "이편한세상", "e편한세상", "디에이치", "THE H", "아크로",
+        "호반써밋", "써밋", "포레나", "센트레빌", "위브", "어울림",
+        "하늘채", "꿈에그린", "스위첸", "데시앙", "리슈빌"
+    ]
+    for b in brands:
+        if b in name:
+            if b == "e편한세상":
+                return "이편한세상"
+            if b == "THE H":
+                return "디에이치"
+            return b
+    return ""
+
 def build_complex_master_from_molit() -> int:
     """
     trades_sale 테이블을 집계하여 complexes 테이블을 재구성하고,
@@ -60,9 +78,8 @@ def build_complex_master_from_molit() -> int:
             raw_key = f"{sgg_cd}_{umd_nm}_{bonbun}_{bubun}_{apt_name}_{build_year}"
             md5_hash = hashlib.md5(raw_key.encode("utf-8")).hexdigest()[:8].upper()
             c_code = f"MOLIT_{sgg_cd}_{md5_hash}"
-
-            # total_households는 임시로 300(폴백 기준), brand는 apt_name 앞 단어
-            brand = apt_name.split()[0] if apt_name else ""
+            # total_households는 임시로 300(폴백 기준), brand는 매칭되는 주요 브랜드 추출
+            brand = extract_brand(apt_name)
 
             complex_rows.append((
                 c_code,

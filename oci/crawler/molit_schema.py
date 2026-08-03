@@ -122,6 +122,11 @@ class CanonicalTrade:
         """
         국토부 실거래 매매 CSV row(dict)로부터 CanonicalTrade 인스턴스를 생성한다.
         """
+        required_cols = ["시군구", "단지명", "전용면적(㎡)", "계약년월", "계약일", "거래금액(만원)"]
+        missing = [c for c in required_cols if c not in row]
+        if missing:
+            raise KeyError(f"매매 CSV 필수 컬럼 누락으로 적재를 중단합니다: {missing} (현재 헤더: {list(row.keys())})")
+
         region_str = row.get("시군구", "")
         sgg_cd, umd_nm = parse_region_string(region_str)
         if not sgg_cd:
@@ -221,6 +226,11 @@ class CanonicalRentTrade:
         """
         국토부 실거래 전월세 CSV row(dict)로부터 CanonicalRentTrade 인스턴스를 생성한다.
         """
+        required_cols = ["시군구", "단지명", "전용면적(㎡)", "계약년월", "계약일", "보증금(만원)", "월세금(만원)"]
+        missing = [c for c in required_cols if c not in row]
+        if missing:
+            raise KeyError(f"전월세 CSV 필수 컬럼 누락으로 적재를 중단합니다: {missing} (현재 헤더: {list(row.keys())})")
+
         region_str = row.get("시군구", "")
         sgg_cd, umd_nm = parse_region_string(region_str)
         if not sgg_cd:
@@ -243,7 +253,7 @@ class CanonicalRentTrade:
         if deposit is None or deposit <= 0:
             return None
 
-        monthly_rent = parse_int_safe(row.get("월세금액(만원)")) or 0
+        monthly_rent = parse_int_safe(row.get("월세금(만원)")) or 0
         floor = parse_int_safe(row.get("층"))
         contract_type = row.get("계약구분", "").strip() or None
 

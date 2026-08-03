@@ -109,7 +109,7 @@
             border-radius: 10px; overflow: hidden;
         }
         .data-table {
-            width: 100%; border-collapse: collapse; font-size: 13px;
+            width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;
         }
         .data-table thead th {
             background: rgba(15, 23, 42, 0.95);
@@ -157,6 +157,97 @@
             text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px;
         }
 
+        /* Column Preset Bar & Custom Checkboxes */
+        .column-preset-bar {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin: 0 16px 12px 16px;
+        }
+        .preset-buttons {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+        .preset-label {
+            font-size: 12px; font-weight: 600; color: var(--text-muted); margin-right: 4px;
+        }
+        .btn-preset {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text); padding: 5px 12px;
+            border-radius: 6px; font-size: 12px; font-weight: 500;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .btn-preset:hover {
+            background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); color: #fff;
+        }
+        .btn-preset.active {
+            background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600;
+        }
+        .btn-custom-toggle {
+            margin-left: auto;
+        }
+        .custom-cols-panel {
+            margin-top: 10px; padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .custom-cols-list {
+            display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+        }
+        .col-checkbox-item {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 12px; color: var(--text); cursor: pointer; user-select: none;
+        }
+        .col-checkbox-item input[type="checkbox"] {
+            cursor: pointer; accent-color: var(--primary);
+        }
+        .col-checkbox-item.fixed-col {
+            opacity: 0.55; cursor: not-allowed;
+        }
+
+        /* Sticky left columns & Number formatting */
+        .data-table-wrap {
+            overflow-x: auto;
+            position: relative;
+        }
+        .data-table th.col-region, .data-table td.col-region {
+            width: 100px; min-width: 100px; max-width: 100px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            position: sticky; left: 0; z-index: 3;
+            background: #0f172a;
+        }
+        .data-table th.col-complex, .data-table td.col-complex {
+            width: 220px; min-width: 220px; max-width: 220px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            position: sticky; left: 100px; z-index: 3;
+            background: #0f172a;
+        }
+        .data-table th.col-area, .data-table td.col-area {
+            width: 130px; min-width: 130px; max-width: 130px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            position: sticky; left: 320px; z-index: 3;
+            background: #0f172a;
+            border-right: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 4px 0 8px -2px rgba(0, 0, 0, 0.4);
+        }
+        .data-table thead th.col-region,
+        .data-table thead th.col-complex,
+        .data-table thead th.col-area {
+            z-index: 4;
+            background: #0f172a;
+        }
+        .data-table tbody tr:hover td.col-region,
+        .data-table tbody tr:hover td.col-complex,
+        .data-table tbody tr:hover td.col-area {
+            background: #1e293b;
+        }
+        .data-table td.num, .data-table th.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            padding: 10px 16px;
+        }
+
         /* Excluded table */
         .data-table td.reason { color: var(--text-muted); font-size: 12px; max-width: 360px; white-space: normal; }
 
@@ -183,7 +274,7 @@
 
     <nav class="navbar">
         <div class="logo-area">
-            <span class="logo-badge">v4.2</span>
+            <span class="logo-badge">v4.3</span>
             <div>
                 <div class="app-title">서초·강남 아파트 퀀트 스크리너</div>
                 <div class="app-subtitle">서초구·강남구 24개 법정동 실거래 기반</div>
@@ -233,6 +324,21 @@
             </div>
         </div>
 
+        <!-- Column Toggle & Preset Bar -->
+        <div class="column-preset-bar" id="columnPresetBar">
+            <div class="preset-buttons">
+                <span class="preset-label">컬럼 프리셋:</span>
+                <button class="btn-preset active" id="btnPresetPrice" onclick="applyPreset('price')">💰 가격 (기본)</button>
+                <button class="btn-preset" id="btnPresetFlow" onclick="applyPreset('flow')">📈 흐름</button>
+                <button class="btn-preset" id="btnPresetComplex" onclick="applyPreset('complex')">🏢 단지</button>
+                <button class="btn-preset" id="btnPresetAll" onclick="applyPreset('all')">👁️ 전체</button>
+                <button class="btn-preset btn-custom-toggle" onclick="toggleCustomPanel()">⚙️ 개별 컬럼 선택</button>
+            </div>
+            <div class="custom-cols-panel" id="customColsPanel" style="display: none;">
+                <div class="custom-cols-list" id="customColsList"></div>
+            </div>
+        </div>
+
         <!-- Table -->
         <div class="data-table-wrap">
             <table class="data-table" id="mainTable">
@@ -258,6 +364,7 @@
         let currentSort = { key: 'excess_drop_rate', dir: 'desc' };
 
         async function initDashboard() {
+            initColumns();
             try {
                 const res = await fetch('/api/properties');
                 const data = await res.json();
@@ -290,6 +397,8 @@
             activeTab = tab;
             document.getElementById('tabActive').classList.toggle('active', tab === 'active');
             document.getElementById('tabExcluded').classList.toggle('active', tab === 'excluded');
+            const presetBar = document.getElementById('columnPresetBar');
+            if (presetBar) presetBar.style.display = (tab === 'active') ? 'block' : 'none';
             // Reset sort for excluded tab
             if (tab === 'excluded') currentSort = { key: 'gate_reason_kr', dir: 'asc' };
             else currentSort = { key: 'excess_drop_rate', dir: 'desc' };
@@ -409,10 +518,124 @@
             return val.toFixed(1) + '배';
         }
 
+        function fmtJeonse(val) {
+            if (val == null || val === '') return '';
+            return val.toFixed(1) + '%';
+        }
+
         function pctClass(val) {
             if (val > 0) return 'val-pos';
             if (val < 0) return 'val-neg';
             return 'val-zero';
+        }
+
+        const OPTIONAL_COLUMNS = [
+            { key: 'median_price_3m', label: '최근 거래가', group: 'price', num: true },
+            { key: 'peak_price', label: '전고점', group: 'price', num: true },
+            { key: 'peak_date', label: '전고점 시점', group: 'price', num: true },
+            { key: 'drop_rate', label: '하락률', group: 'price', num: true },
+            { key: 'excess_drop_rate', label: '초과하락', group: 'price', num: true },
+            { key: 'jeonse_ratio', label: '전세가율', group: 'price', num: true },
+            { key: 'm3', label: 'M3', group: 'flow', num: true },
+            { key: 'm6', label: 'M6', group: 'flow', num: true },
+            { key: 'm12', label: 'M12', group: 'flow', num: true },
+            { key: 'trade_count_12m', label: '거래 건수', group: 'flow', num: true },
+            { key: 'volume_ratio', label: '거래량비', group: 'flow', num: true },
+            { key: 'build_year_str', label: '연식', group: 'complex', num: true },
+            { key: 'brand', label: '브랜드', group: 'complex', num: false },
+            { key: 'subway_str', label: '역세권', group: 'complex', num: false },
+            { key: 'academies_str', label: '학원가', group: 'complex', num: false },
+            { key: 'schools_str', label: '학교거리', group: 'complex', num: false },
+        ];
+
+        const PRESETS = {
+            price: ['median_price_3m', 'peak_price', 'peak_date', 'drop_rate', 'excess_drop_rate', 'jeonse_ratio'],
+            flow: ['m3', 'm6', 'm12', 'trade_count_12m', 'volume_ratio'],
+            complex: ['build_year_str', 'brand', 'subway_str', 'academies_str', 'schools_str'],
+            all: OPTIONAL_COLUMNS.map(c => c.key)
+        };
+
+        let visibleColumns = [];
+
+        function initColumns() {
+            const saved = localStorage.getItem('screener_visible_cols');
+            if (saved) {
+                try {
+                    visibleColumns = JSON.parse(saved);
+                } catch(e) {
+                    visibleColumns = PRESETS.price.slice();
+                }
+            } else {
+                visibleColumns = PRESETS.price.slice();
+            }
+            updatePresetButtonsState();
+            renderCustomColsCheckboxes();
+        }
+
+        function saveVisibleColumns() {
+            localStorage.setItem('screener_visible_cols', JSON.stringify(visibleColumns));
+            updatePresetButtonsState();
+            renderCustomColsCheckboxes();
+            applyFilters();
+        }
+
+        function applyPreset(presetName) {
+            if (PRESETS[presetName]) {
+                visibleColumns = PRESETS[presetName].slice();
+                saveVisibleColumns();
+            }
+        }
+
+        function toggleCustomPanel() {
+            const panel = document.getElementById('customColsPanel');
+            panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
+        }
+
+        function updatePresetButtonsState() {
+            ['price', 'flow', 'complex', 'all'].forEach(name => {
+                const btn = document.getElementById('btnPreset' + name.charAt(0).toUpperCase() + name.slice(1));
+                if (btn) {
+                    const presetCols = PRESETS[name];
+                    const isMatch = presetCols.length === visibleColumns.length &&
+                        presetCols.every(k => visibleColumns.includes(k));
+                    btn.classList.toggle('active', isMatch);
+                }
+            });
+        }
+
+        function renderCustomColsCheckboxes() {
+            const container = document.getElementById('customColsList');
+            if (!container) return;
+            let html = `
+                <label class="col-checkbox-item fixed-col">
+                    <input type="checkbox" checked disabled> 지역
+                </label>
+                <label class="col-checkbox-item fixed-col">
+                    <input type="checkbox" checked disabled> 단지명
+                </label>
+                <label class="col-checkbox-item fixed-col">
+                    <input type="checkbox" checked disabled> 평형
+                </label>
+            `;
+            OPTIONAL_COLUMNS.forEach(c => {
+                const isChecked = visibleColumns.includes(c.key);
+                html += `
+                    <label class="col-checkbox-item">
+                        <input type="checkbox" onchange="toggleColumn('${c.key}', this.checked)" ${isChecked ? 'checked' : ''}>
+                        ${c.label}
+                    </label>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function toggleColumn(key, checked) {
+            if (checked && !visibleColumns.includes(key)) {
+                visibleColumns.push(key);
+            } else if (!checked) {
+                visibleColumns = visibleColumns.filter(k => k !== key);
+            }
+            saveVisibleColumns();
         }
 
         function renderTable(list) {
@@ -420,29 +643,22 @@
             const tbody = document.getElementById('tableBody');
 
             if (activeTab === 'active') {
-                const cols = [
-                    { key: 'region_name', label: '지역' },
-                    { key: 'complex_name', label: '단지명' },
-                    { key: 'area_type_str', label: '평형' },
-                    { key: 'median_price_3m', label: '최근 거래가' },
-                    { key: 'peak_price', label: '전고점' },
-                    { key: 'peak_date', label: '전고점 시점' },
-                    { key: 'drop_rate', label: '하락률' },
-                    { key: 'excess_drop_rate', label: '초과하락' },
-                    { key: 'm3', label: 'M3' },
-                    { key: 'm6', label: 'M6' },
-                    { key: 'm12', label: 'M12' },
-                    { key: 'trade_count_12m', label: '거래 건수' },
-                    { key: 'volume_ratio', label: '거래량비' },
+                const fixedCols = [
+                    { key: 'region_name', label: '지역', cls: 'col-region' },
+                    { key: 'complex_name', label: '단지명', cls: 'col-complex' },
+                    { key: 'area_type_str', label: '평형', cls: 'col-area' },
                 ];
+                const activeOptionalCols = OPTIONAL_COLUMNS.filter(c => visibleColumns.includes(c.key));
+                const cols = fixedCols.concat(activeOptionalCols);
+
                 thead.innerHTML = '<tr>' + cols.map(c => {
                     const isSorted = currentSort.key === c.key;
                     const arrow = isSorted ? (currentSort.dir === 'asc' ? '▲' : '▼') : '▲';
-                    return `<th class="${isSorted ? 'sorted' : ''}" onclick="doSort('${c.key}')">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+                    return `<th class="${isSorted ? 'sorted' : ''} ${c.num ? 'num' : ''} ${c.cls || ''}" onclick="doSort('${c.key}')">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
                 }).join('') + '</tr>';
 
                 if (!list.length) {
-                    tbody.innerHTML = '<tr><td colspan="13" class="empty-msg">조건에 일치하는 매물이 없습니다.</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="${cols.length}" class="empty-msg">조건에 일치하는 매물이 없습니다.</td></tr>`;
                     return;
                 }
 
@@ -450,27 +666,43 @@
                     const naverUrl = item.naver_link || ('https://new.land.naver.com/complexes/' + (item.complex_code || ''));
                     const nameLink = naverUrl ? `<a href="${naverUrl}" target="_blank">${item.complex_name}</a>` : item.complex_name;
                     const badge = item.is_new_high ? '<span class="badge-new-high">신고가</span>' : '';
-                    const dropVal = item.drop_rate || 0;
-                    const exVal = item.excess_drop_rate || 0;
-                    const m3Val = item.m3;
-                    const m6Val = item.m6;
-                    const m12Val = item.m12;
-                    const tradeN = item.trade_count_12m || 0;
-                    return `<tr>
-                        <td class="region">${item.region_name || ''}</td>
-                        <td class="complex-name">${nameLink}${badge}</td>
-                        <td>${item.area_type_str || ''}</td>
-                        <td class="num">${fmtEok(item.median_price_3m)}</td>
-                        <td class="num">${fmtEok(item.peak_price)}</td>
-                        <td class="num">${item.peak_date || ''}</td>
-                        <td class="num ${pctClass(-dropVal)}">${item.is_new_high ? '0.0%' : fmtDropRate(dropVal)}</td>
-                        <td class="num ${pctClass(exVal)}">${fmtPctP(exVal)}</td>
-                        <td class="num ${pctClass(m3Val)}">${fmtM(m3Val)}</td>
-                        <td class="num ${pctClass(m6Val)}">${fmtM(m6Val)}</td>
-                        <td class="num ${pctClass(m12Val)}">${fmtM(m12Val)}</td>
-                        <td class="num">${tradeN ? tradeN + '건' : ''}</td>
-                        <td class="num">${fmtVol(item.volume_ratio)}</td>
-                    </tr>`;
+                    
+                    let rowHtml = `<tr>
+                        <td class="region col-region">${item.region_name || ''}</td>
+                        <td class="complex-name col-complex">${nameLink}${badge}</td>
+                        <td class="col-area">${item.area_type_str || ''}</td>`;
+                    
+                    activeOptionalCols.forEach(c => {
+                        const val = item[c.key];
+                        let content = '';
+                        let extraClass = c.num ? 'num ' : '';
+                        if (c.key === 'median_price_3m' || c.key === 'peak_price') {
+                            content = fmtEok(val);
+                        } else if (c.key === 'drop_rate') {
+                            const dropVal = val || 0;
+                            extraClass += pctClass(-dropVal);
+                            content = item.is_new_high ? '0.0%' : fmtDropRate(dropVal);
+                        } else if (c.key === 'excess_drop_rate') {
+                            const exVal = val || 0;
+                            extraClass += pctClass(exVal);
+                            content = fmtPctP(exVal);
+                        } else if (c.key === 'jeonse_ratio') {
+                            content = fmtJeonse(val);
+                        } else if (c.key === 'm3' || c.key === 'm6' || c.key === 'm12') {
+                            const mVal = val;
+                            extraClass += pctClass(mVal);
+                            content = fmtM(mVal);
+                        } else if (c.key === 'trade_count_12m') {
+                            content = val ? val + '건' : '';
+                        } else if (c.key === 'volume_ratio') {
+                            content = fmtVol(val);
+                        } else {
+                            content = (val == null) ? '' : val;
+                        }
+                        rowHtml += `<td class="${extraClass.trim()}">${content}</td>`;
+                    });
+                    rowHtml += '</tr>';
+                    return rowHtml;
                 }).join('');
             } else {
                 // Excluded tab

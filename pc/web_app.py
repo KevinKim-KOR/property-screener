@@ -68,6 +68,35 @@ class RegionItem(BaseModel):
 class RegionsPayload(BaseModel):
     regions: List[RegionItem]
 
+def format_subway_str(comp: dict) -> str:
+    if not comp:
+        return ""
+    s_dist = comp.get("subway_dist_m")
+    s_name = comp.get("subway_name")
+    if s_dist is not None and float(s_dist) <= 1500.0 and s_name:
+        return f"{s_name} {int(round(float(s_dist)))}m"
+    return ""
+
+def format_academies_str(comp: dict) -> str:
+    if not comp:
+        return ""
+    cnt = comp.get("academies_count")
+    if cnt is not None:
+        return f"학원 {int(cnt)}곳"
+    return ""
+
+def format_schools_str(comp: dict) -> str:
+    if not comp:
+        return ""
+    parts = []
+    e_dist = comp.get("elem_school_dist_m")
+    if e_dist is not None and float(e_dist) <= 2000.0:
+        parts.append(f"초 {int(round(float(e_dist)))}m")
+    m_dist = comp.get("mid_school_dist_m")
+    if m_dist is not None and float(m_dist) <= 2000.0:
+        parts.append(f"중 {int(round(float(m_dist)))}m")
+    return " / ".join(parts)
+
 @app.get("/api/properties")
 def get_properties():
     """screener.db 매물 정보와 v2/v1 스코어링 정보를 반환합니다."""
@@ -88,6 +117,9 @@ def get_properties():
             cursor.execute("SELECT * FROM complex_area_stats WHERE base_date = (SELECT MAX(base_date) FROM complex_area_stats)")
             cas_map = { (str(r["complex_code"]), str(r["area_type"])): dict(r) for r in cursor.fetchall() }
 
+            cursor.execute("SELECT * FROM complexes")
+            comp_map = {str(r["complex_code"]): dict(r) for r in cursor.fetchall()}
+
             cursor.execute("SELECT * FROM properties")
             for row in cursor.fetchall():
                 pid = str(row["property_id"])
@@ -96,6 +128,19 @@ def get_properties():
 
                 ms = ms_map.get((cc, at), {})
                 cas = cas_map.get((cc, at), {})
+                comp = comp_map.get(cc, {})
+
+                by_val = comp.get("build_year")
+                if by_val and int(by_val) > 1900:
+                    by_int = int(by_val)
+                    age_int = max(0, 2026 - by_int)
+                    by_str = f"{by_int}년 · {age_int}년"
+                else:
+                    by_str = ""
+                brand_str = str(comp.get("brand") or "")
+                subway_str = format_subway_str(comp)
+                academies_str = format_academies_str(comp)
+                schools_str = format_schools_str(comp)
 
                 asking_price = float(row["asking_price"] or 0)
                 med_3m = float(cas.get("median_price_3m", 0))
@@ -141,6 +186,11 @@ def get_properties():
                     "area_type": at,
                     "area_type_str": translate_area_type(at),
                     "area_pyeong": float(row["area_pyeong"] or 0),
+                    "build_year_str": by_str,
+                    "brand": brand_str,
+                    "subway_str": subway_str,
+                    "academies_str": academies_str,
+                    "schools_str": schools_str,
                     "asking_price": asking_price,
                     "median_price_3m": med_3m,
                     "price_interpretation": translate_price_interpretation(asking_price, med_3m),
@@ -149,6 +199,7 @@ def get_properties():
                     "peak_date": str(cas.get("peak_date") or ""),
                     "drop_rate": round(float(cas.get("drop_rate") or 0.0) * 100.0, 1),
                     "excess_drop_rate": round(excess_drop, 2),
+                    "jeonse_ratio": round(float(cas["jeonse_ratio"]) * 100.0, 1) if cas.get("jeonse_ratio") is not None else None,
                     "m3": round(float(cas["m3"]), 4) if cas.get("m3") is not None else None,
                     "m6": round(float(cas["m6"]), 4) if cas.get("m6") is not None else None,
                     "m12": round(float(cas["m12"]), 4) if cas.get("m12") is not None else None,
@@ -185,6 +236,18 @@ def get_properties():
                     max_a = float(comp.get("area_max_m2") or 0.0)
                     avg_pyeong = round((min_a + max_a) / 2.0 / 3.30578, 1) if max_a > 0 else 32.0
 
+                    by_val = comp.get("build_year")
+                    if by_val and int(by_val) > 1900:
+                        by_int = int(by_val)
+                        age_int = max(0, 2026 - by_int)
+                        by_str = f"{by_int}년 · {age_int}년"
+                    else:
+                        by_str = ""
+                    brand_str = str(comp.get("brand") or "")
+                    subway_str = format_subway_str(comp)
+                    academies_str = format_academies_str(comp)
+                    schools_str = format_schools_str(comp)
+
                     item_dict = {
                         "val_score": float(ms.get("block_value") or 50.0),
                         "flw_score": float(ms.get("block_flow") or 50.0),
@@ -214,6 +277,11 @@ def get_properties():
                         "area_type": at,
                         "area_type_kr": translate_area_type(at),
                         "area_type_str": translate_area_type(at),
+                        "build_year_str": by_str,
+                        "brand": brand_str,
+                        "subway_str": subway_str,
+                        "academies_str": academies_str,
+                        "schools_str": schools_str,
                         "sample_count_24m": int(cas.get("trade_count_24m") or cas.get("trade_count_12m") or 0),
                         "sample_count_12m": int(cas.get("trade_count_12m") or 0),
                         "asking_price": 0,
@@ -226,6 +294,7 @@ def get_properties():
                         "drop_rate": round(float(cas.get("drop_rate") or 0.0) * 100.0, 1),
                         "excess_drop": round(float(cas.get("excess_drop_rate") or 0.0) * 100.0, 1),
                         "excess_drop_rate": round(float(cas.get("excess_drop_rate") or 0.0) * 100.0, 1),
+                        "jeonse_ratio": round(float(cas["jeonse_ratio"]) * 100.0, 1) if cas.get("jeonse_ratio") is not None else None,
                         "m3": round(float(cas["m3"]), 4) if cas.get("m3") is not None else None,
                         "m6": round(float(cas["m6"]), 4) if cas.get("m6") is not None else None,
                         "m12": round(float(cas["m12"]), 4) if cas.get("m12") is not None else None,
@@ -437,4 +506,4 @@ def index_page():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("pc.web_app:app", host="127.0.0.1", port=8585, reload=False)
+    uvicorn.run("pc.web_app:app", host="127.0.0.1", port=8585, reload=True)

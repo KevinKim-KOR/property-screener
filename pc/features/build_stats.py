@@ -104,16 +104,18 @@ def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
             reg_median_drop = reg_drop_map.get((sgg_cd, at), 0.05)
             excess_drop_rate = drop_rate - reg_median_drop
 
-            # 전세가율 계산
+            # 전세가율 계산 (최근 6개월, 순수 전세, 동일 단지 및 5㎡ 버킷, 최소 2건 요구)
             cur.execute("""
                 SELECT deposit FROM trades_rent
-                WHERE complex_code = ? AND area_type = ? AND monthly_rent = 0
+                WHERE complex_code = ? AND area_type = ? 
+                  AND (monthly_rent = 0 OR monthly_rent IS NULL) 
+                  AND deal_date >= '2026-02-01'
             """, (cc, at))
             rent_rows = cur.fetchall()
-            if rent_rows and median_price_3m > 0:
+            if len(rent_rows) >= 2 and median_price_3m > 0:
                 jeonse_ratio = statistics.median([r["deposit"] for r in rent_rows]) / median_price_3m
             else:
-                jeonse_ratio = 0.55  # 폴백
+                jeonse_ratio = None
 
             # 평단가 (만원 / 3.3㎡)
             ex_area = statistics.median([t["exclusive_area"] for t in trades]) if trades else get_ref_pyeong_m2(at)
