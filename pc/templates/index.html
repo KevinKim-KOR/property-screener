@@ -345,11 +345,53 @@
             <div class="filter-group">
                 <input type="text" class="search-box" id="searchInput" placeholder="단지명 검색..." oninput="applyFilters()">
             </div>
+            <div class="filter-group">
+                <button class="btn-filter" id="btnToggleCond" onclick="toggleCondPanel()" style="background: rgba(59, 130, 246, 0.15); border: 1px solid var(--primary); color: #fff; font-weight: 600;">🔍 조건 필터 ▼</button>
+            </div>
             <div class="filter-group" id="dongFilterGroup" style="width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
                 <span class="filter-label">법정동</span>
                 <button class="btn-filter" onclick="selectAllDongs()" style="background: rgba(255,255,255,0.12); color: #fff;">전체 선택</button>
                 <button class="btn-filter" onclick="clearAllDongs()" style="background: rgba(255,255,255,0.06); color: #ccc;">전체 해제</button>
                 <div id="dongButtonsList" style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-left: 6px;"></div>
+            </div>
+            <!-- Collapsible Condition Filters Panel -->
+            <div id="condFilterPanel" style="display: none; width: 100%; margin-top: 8px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 8px; align-items: center;">
+                <span class="filter-label" style="color: var(--primary); font-weight: 600; margin-right: 4px;">상세 조건</span>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">초과하락</span>
+                    <input type="number" step="any" id="condExcessDrop" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">%p 이상</span>
+                </div>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">전세가율</span>
+                    <input type="number" step="any" id="condJeonse" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">% 이상</span>
+                </div>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">거래량비</span>
+                    <input type="number" step="any" id="condVol" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">배 이상</span>
+                </div>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">거래 건수</span>
+                    <input type="number" step="any" id="condTradeCnt" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">건 이상</span>
+                </div>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">학원가</span>
+                    <input type="number" step="any" id="condAcademies" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">곳 이상</span>
+                </div>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">역세권</span>
+                    <input type="number" step="any" id="condSubway" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">m 이내</span>
+                </div>
+                <div class="cond-item" style="display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 12px; color: #cbd5e1; font-weight: 500;">연식</span>
+                    <input type="number" step="any" id="condAge" class="cond-input" placeholder="-" oninput="onCondChange()" style="width: 60px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                    <span style="font-size: 12px; color: #94a3b8;">년 이하</span>
+                </div>
             </div>
         </div>
 
@@ -366,6 +408,17 @@
             <div class="custom-cols-panel" id="customColsPanel" style="display: none;">
                 <div class="custom-cols-list" id="customColsList"></div>
             </div>
+        </div>
+
+        <!-- Filter Condition Summary Bar -->
+        <div id="condSummaryBar" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding: 10px 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; transition: all 0.2s;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 15px;">🔍</span>
+                <span id="condSummaryText" style="font-weight: 600; color: #e2e8f0;">조건 0개 적용 · 0곳 표시</span>
+            </div>
+            <button onclick="resetCondFilters()" style="padding: 5px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); color: #e2e8f0; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                🔄 조건 초기화
+            </button>
         </div>
 
         <!-- Table -->
@@ -592,6 +645,7 @@
                 updateDataRefBanner(data);
                 updateFooter();
                 renderDongButtons();
+                loadCondFilters();
                 applyFilters();
             } catch(e) {
                 document.getElementById('tableBody').innerHTML =
@@ -652,9 +706,13 @@
 
         function updatePriceLabel() {
             const val = parseInt(document.getElementById('priceSlider').value, 10);
+            const label = document.getElementById('priceLabel');
+            if (val >= 1000000) {
+                label.textContent = '전체';
+            } else {
+                label.textContent = (val / 10000).toFixed(1) + '억 이하';
+            }
             maxPriceFilter = val;
-            if (val >= 1000000) document.getElementById('priceLabel').textContent = '전체';
-            else document.getElementById('priceLabel').textContent = `${(val / 10000).toFixed(1)}억 이하`;
         }
 
         function matchPyeongFilter(itemAreaType, filterVal) {
@@ -691,9 +749,151 @@
                 if (query && !(item.complex_name || '').toLowerCase().includes(query)) return false;
                 const priceVal = item.median_price_3m || item.asking_price || 0;
                 if (maxPriceFilter < 1000000 && priceVal > 0 && priceVal > maxPriceFilter) return false;
+                if (!matchCondFilters(item)) return false;
                 return true;
             });
+            updateCondSummary(filtered.length);
             sortAndRender(filtered);
+        }
+
+        function getCondVal(id) {
+            const el = document.getElementById(id);
+            if (!el || el.value === '' || el.value == null) return null;
+            const v = parseFloat(el.value);
+            return isNaN(v) ? null : v;
+        }
+
+        function matchCondFilters(item) {
+            const excessDrop = getCondVal('condExcessDrop');
+            if (excessDrop !== null) {
+                if (item.excess_drop_rate == null || item.excess_drop_rate === '') return false;
+                if (Number(item.excess_drop_rate) < excessDrop) return false;
+            }
+            const jeonse = getCondVal('condJeonse');
+            if (jeonse !== null) {
+                if (item.jeonse_ratio == null || item.jeonse_ratio === '') return false;
+                if (Number(item.jeonse_ratio) < jeonse) return false;
+            }
+            const vol = getCondVal('condVol');
+            if (vol !== null) {
+                if (item.volume_ratio == null || item.volume_ratio === '') return false;
+                if (Number(item.volume_ratio) < vol) return false;
+            }
+            const tradeCnt = getCondVal('condTradeCnt');
+            if (tradeCnt !== null) {
+                if (item.trade_count_12m == null || item.trade_count_12m === '') return false;
+                if (Number(item.trade_count_12m) < tradeCnt) return false;
+            }
+            const academies = getCondVal('condAcademies');
+            if (academies !== null) {
+                if (item.academies_count == null || item.academies_count === '') return false;
+                if (Number(item.academies_count) < academies) return false;
+            }
+            const subway = getCondVal('condSubway');
+            if (subway !== null) {
+                if (item.subway_dist_m == null || item.subway_dist_m === '') return false;
+                if (Number(item.subway_dist_m) > subway) return false;
+            }
+            const age = getCondVal('condAge');
+            if (age !== null) {
+                if (item.age_years == null || item.age_years === '') return false;
+                if (Number(item.age_years) > age) return false;
+            }
+            return true;
+        }
+
+        function getActiveCondCount() {
+            const ids = ['condExcessDrop', 'condJeonse', 'condVol', 'condTradeCnt', 'condAcademies', 'condSubway', 'condAge'];
+            let cnt = 0;
+            ids.forEach(id => {
+                if (getCondVal(id) !== null) cnt++;
+            });
+            return cnt;
+        }
+
+        function updateCondSummary(filteredCount) {
+            const cnt = getActiveCondCount();
+            const textEl = document.getElementById('condSummaryText');
+            const barEl = document.getElementById('condSummaryBar');
+            if (textEl) {
+                textEl.textContent = `조건 ${cnt}개 적용 · ${filteredCount}곳 표시`;
+            }
+            if (barEl) {
+                if (cnt > 0) {
+                    barEl.style.background = 'rgba(59, 130, 246, 0.15)';
+                    barEl.style.borderColor = 'var(--primary)';
+                } else {
+                    barEl.style.background = 'rgba(255, 255, 255, 0.04)';
+                    barEl.style.borderColor = 'var(--border)';
+                }
+            }
+        }
+
+        function saveCondFilters() {
+            const ids = ['condExcessDrop', 'condJeonse', 'condVol', 'condTradeCnt', 'condAcademies', 'condSubway', 'condAge'];
+            const vals = {};
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) vals[id] = el.value;
+            });
+            localStorage.setItem('screener_cond_filters', JSON.stringify(vals));
+        }
+
+        function loadCondFilters() {
+            const saved = localStorage.getItem('screener_cond_filters');
+            if (saved) {
+                try {
+                    const vals = JSON.parse(saved);
+                    for (const id in vals) {
+                        const el = document.getElementById(id);
+                        if (el && vals[id] !== undefined) {
+                            el.value = vals[id];
+                        }
+                    }
+                } catch(e) {}
+            }
+            const panelOpen = localStorage.getItem('screener_cond_panel_open') === 'true';
+            const panel = document.getElementById('condFilterPanel');
+            const btn = document.getElementById('btnToggleCond');
+            if (panel && btn) {
+                if (panelOpen) {
+                    panel.style.display = 'flex';
+                    btn.innerHTML = '🔍 조건 필터 ▲';
+                } else {
+                    panel.style.display = 'none';
+                    btn.innerHTML = '🔍 조건 필터 ▼';
+                }
+            }
+        }
+
+        function onCondChange() {
+            saveCondFilters();
+            applyFilters();
+        }
+
+        function resetCondFilters() {
+            const ids = ['condExcessDrop', 'condJeonse', 'condVol', 'condTradeCnt', 'condAcademies', 'condSubway', 'condAge'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            saveCondFilters();
+            applyFilters();
+        }
+
+        function toggleCondPanel() {
+            const panel = document.getElementById('condFilterPanel');
+            const btn = document.getElementById('btnToggleCond');
+            if (!panel || !btn) return;
+            if (panel.style.display === 'none') {
+                panel.style.display = 'flex';
+                btn.innerHTML = '🔍 조건 필터 ▲';
+                localStorage.setItem('screener_cond_panel_open', 'true');
+            } else {
+                panel.style.display = 'none';
+                btn.innerHTML = '🔍 조건 필터 ▼';
+                localStorage.setItem('screener_cond_panel_open', 'false');
+            }
         }
 
         function sortAndRender(list) {
