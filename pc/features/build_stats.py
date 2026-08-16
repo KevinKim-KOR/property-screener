@@ -5,6 +5,7 @@ complex_area_stats 테이블에 적재하는 빌더 모듈
 (SCORING_V2_DESIGN.md §7.1, §7.2, P1-AC10).
 """
 import math
+import sqlite3
 import statistics
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -32,7 +33,9 @@ def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
         cur = conn.cursor()
         try:
             cur.execute("ALTER TABLE complex_area_stats ADD COLUMN sample_count_24m INTEGER")
-        except Exception:
+        except sqlite3.OperationalError:
+            # 의도적 삼킴: 컬럼이 이미 있으면 실패가 정상 (멱등성 보장).
+            # sqlite3.OperationalError 로 한정해 다른 예외는 드러나게 한다.
             pass
         cur.execute("DELETE FROM complex_area_stats WHERE base_date = ?", (base_date,))
 

@@ -4,10 +4,13 @@ import sys
 import time
 import requests
 import sqlite3
+from pathlib import Path
 from dotenv import load_dotenv
+from pc.features.api_failures import ApiFailureTracker
 
 sys.path.insert(0, os.path.abspath('.'))
-load_dotenv("e:/AI Study/property/.env")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 def update_all_academies_count():
     api_key = os.environ.get("KAKAO_REST_API_KEY")
@@ -35,6 +38,8 @@ def update_all_academies_count():
     
     print(f"Target geocoded complexes for AC5 (academy) search: {len(rows)}")
     
+    # 카카오 API 호출 실패 집계 (개별은 넘기되 과반 실패면 중단)
+    api_tracker = ApiFailureTracker("학원 검색", len(rows))
     success_cnt = 0
     fail_cnt = 0
     
@@ -54,7 +59,7 @@ def update_all_academies_count():
                 data = res.json()
                 count_val = int(data.get("meta", {}).get("total_count", 0))
         except Exception as e:
-            pass
+            api_tracker.record_failure(comp_nm, e)
         
         if count_val is not None:
             success_cnt += 1
@@ -116,9 +121,12 @@ def update_all_academies_count():
         
     conn.close()
     
-    with open(r"C:\Users\minan\.gemini\antigravity\brain\ddff3f34-9a5d-4f36-929c-f33ed2ccc290\scratch\academies_report.txt", "w", encoding="utf-8") as f:
+    api_tracker.report()
+    report_path = PROJECT_ROOT / "reports" / "academies_report.txt"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
-    print("Report saved to scratch/academies_report.txt")
+    print(f"Report saved to {report_path}")
 
 if __name__ == "__main__":
     update_all_academies_count()

@@ -18,7 +18,9 @@ def main():
     crawler = NaverCrawler()
     crawler.run()
     
-    # 2. 텔레그램 알림 발송 (PC에서 생성한 ml_results.json 기반)
+    # 2. 텔레그램 알림 발송
+    #    screener.db 의 properties / market_scores / complex_area_stats / sent_alerts 를
+    #    직접 조회해 발송 대상을 고른다. ml_results.json 은 읽지 않는다.
     print("[OCI Engine] Running Telegram Notifier...")
     notifier = TelegramNotifier()
     notifier.run()

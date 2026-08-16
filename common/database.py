@@ -38,7 +38,11 @@ def init_db():
         ]:
             try:
                 cursor.execute(alter_sql)
-            except Exception:
+            except sqlite3.OperationalError:
+                # 의도적 삼킴: 이미 존재하는 컬럼에 대한 ALTER 는 반드시 실패한다.
+                # 이 루프는 멱등성(여러 번 실행해도 같은 결과) 보장이 목적이므로
+                # 실패를 넘기는 것이 정상 동작이다. 다른 예외까지 삼키지 않도록
+                # sqlite3.OperationalError 로 한정한다.
                 pass
         
         # 3. schema_version 체크 및 001_scoring_v2 마이그레이션 실행
@@ -59,7 +63,9 @@ def init_db():
             for alter_sql in v2_alters:
                 try:
                     cursor.execute(alter_sql)
-                except Exception:
+                except sqlite3.OperationalError:
+                    # 의도적 삼킴: 멱등성 보장용 (이미 존재하는 컬럼이면 실패가 정상).
+                    # sqlite3.OperationalError 로 한정한다.
                     pass
             now_str = datetime.now().isoformat()
             cursor.execute(
@@ -72,7 +78,11 @@ def init_db():
         ]:
             try:
                 cursor.execute(alter_sql)
-            except Exception:
+            except sqlite3.OperationalError:
+                # 의도적 삼킴: 이미 존재하는 컬럼에 대한 ALTER 는 반드시 실패한다.
+                # 이 루프는 멱등성(여러 번 실행해도 같은 결과) 보장이 목적이므로
+                # 실패를 넘기는 것이 정상 동작이다. 다른 예외까지 삼키지 않도록
+                # sqlite3.OperationalError 로 한정한다.
                 pass
         
         conn.commit()

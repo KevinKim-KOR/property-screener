@@ -40,3 +40,11 @@ csv/
 data/
 *.csv
 
+
+# Local runtime
+.web_app.pid
+
+# Generated artifacts (reports/self_check_*.md 는 점검 이력이므로 계속 추적)
+reports/*.html
+reports/ml_results.json
+reports/ml_results.prev.json

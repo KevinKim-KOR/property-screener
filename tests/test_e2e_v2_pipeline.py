@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 from common.database import init_db, get_db_connection
 from oci.crawler.molit_ingest import ingest_molit_csv_file
+from pc.features.build_complex_master import build_complex_master_from_molit
 from pc.keymap.matcher import run_complex_matching
 from pc.features.region_stats import compute_and_store_region_stats
 from pc.features.build_stats import build_complex_area_stats
@@ -28,11 +29,22 @@ class TestE2EV2Pipeline(unittest.TestCase):
         cnt_sales = ingest_molit_csv_file(str(sales_file), is_rent=False, snapshot_date="2026-07-29")
         self.assertGreaterEqual(cnt_sales, 100, "서초구 매매 실거래 적재되어야 함")
 
+        print("\n--- [E2E Step 1-1] 단지 마스터 구축 (build_complex_master) ---")
+        # 매칭은 complexes(단지 마스터)를 대조군으로 쓰므로 반드시 선행되어야 한다.
+        # 이 단계가 빠지면 매칭이 전부 UNMATCHED 가 되어 이후가 전부 0이 된다.
+        master_cnt = build_complex_master_from_molit()
+        self.assertGreaterEqual(master_cnt, 10, "국토부 실거래에서 단지 마스터가 만들어져야 함")
+
         print("\n--- [E2E Step 1-2] 4단계 지번/도로명/단지명 매칭 엔진 (matcher) ---")
         match_res = run_complex_matching()
         self.assertGreaterEqual(match_res["total"], 0)
 
         print("\n--- [E2E Step 2 & 3] 지역 통계 및 단지/평형 통계 생성 (build_stats) ---")
+        # build_complex_area_stats 는 region_stats 를(초과하락률용),
+        # compute_and_store_region_stats 는 complex_area_stats 를 읽는 상호 참조이므로
+        # build -> region -> build 2패스로 채운다. 순서를 지키지 않으면
+        # 깨끗한 DB 에서 region_stats 가 0 이 된다.
+        cas_cnt = build_complex_area_stats("2026-07-29")
         reg_cnt = compute_and_store_region_stats("2026-07-29")
         cas_cnt = build_complex_area_stats("2026-07-29")
         self.assertGreaterEqual(reg_cnt, 2)

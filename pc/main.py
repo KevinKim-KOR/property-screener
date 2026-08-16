@@ -20,17 +20,17 @@ def main():
     while True:
         print("\n[PC Engine] Running task iteration...")
         
-        # 1. OCI로부터 DB 다운로드 (현재 Mock 처리)
-        print("[PC Engine] Downloading screener.db from OCI...")
-        SyncManager.download_db()
+        # 1. 로컬 screener.db 확보 (OCI 다운로드는 미구현 - 설계 문서 §9 항목 29)
+        print("[PC Engine] Ensuring local screener.db...")
+        SyncManager.ensure_local_db()
         
         # 2. ML 기반 정형 데이터 분석 및 프롬프트 생성
+        #    MLEngine.run() 이 reports/ml_results.json 을 직접 기록한다.
         print("[PC Engine] Running ML Scoring & Prompt Generation...")
-        results = MLEngine.run()
+        MLEngine.run()
         
-        # 3. 분석 결과 JSON을 OCI로 업로드
-        print("[PC Engine] Uploading ml_results.json to OCI...")
-        SyncManager.upload_results(results)
+        # 3. OCI 업로드 단계는 없다. 전송이 미구현이며
+        #    SyncManager.upload_results() 는 호출 시 NotImplementedError 를 발생시킨다.
         
         # 4. 로컬 PC에서 즉시 열어볼 수 있는 시각적 HTML 대시보드 자동 생성
         from pc.viewer.generate_report import generate_report

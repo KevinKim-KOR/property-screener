@@ -541,9 +541,14 @@
             const daysAgo = data.data_ref_days_ago;
 
             if (!refDate || daysAgo == null) {
-                textEl.textContent = '실거래 자료 기준일을 확인할 수 없습니다.';
+                // 사유가 있으면 함께 보여준다. 조용히 사라지면 원인을 알 수 없다.
+                textEl.textContent = data.data_ref_error
+                    ? ('실거래 자료 기준일 확인 불가 — ' + data.data_ref_error)
+                    : '실거래 자료 기준일을 확인할 수 없습니다.';
+                textEl.style.color = '#f87171';
                 return;
             }
+            textEl.style.color = '';
 
             const parts = refDate.split('-');
             const y = parts[0];
@@ -608,13 +613,20 @@
                             btn.innerHTML = '🔄 최신 자료 가져오기';
                             btn.disabled = false;
                             btn.style.opacity = '1';
-
-                            resultEl.textContent = '✓ ' + (status.progress_msg || '완료');
                             resultEl.style.display = 'inline';
-                            resultEl.style.color = 'var(--primary)';
 
-                            // 2초 후 전체 새로고침으로 기준일·테이블 갱신
-                            setTimeout(() => location.reload(), 2000);
+                            if (status.error) {
+                                // 실패를 성공처럼 보이게 하지 않는다.
+                                // 과거에는 progress_msg 에 오류 문구가 담겨도 '✓' 가 붙었다.
+                                resultEl.textContent = '✕ 실패: ' + status.error;
+                                resultEl.style.color = '#f87171';
+                                // 갱신되지 않았으므로 새로고침하지 않는다.
+                            } else {
+                                resultEl.textContent = '✓ ' + (status.progress_msg || '완료');
+                                resultEl.style.color = 'var(--primary)';
+                                // 2초 후 전체 새로고침으로 기준일·테이블 갱신
+                                setTimeout(() => location.reload(), 2000);
+                            }
                         }
                     } catch (e) {
                         // 폴링 에러 무시

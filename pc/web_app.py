@@ -58,8 +58,111 @@ SEOUL_PRESETS = [
 crawl_state = {
     "is_crawling": False,
     "progress_msg": "대기 중",
-    "last_updated": None
+    "last_updated": None,
+    # 마지막 작업이 실패했으면 사유 문자열, 성공했으면 None.
+    # 프런트엔드는 이 값으로 성공/실패를 구분한다. progress_msg 만으로는
+    # 오류 문구에도 "✓ 완료"가 붙어 실패가 성공처럼 보였다.
+    "error": None
 }
+
+
+def _ingest_latest_molit_csvs():
+    """
+    data/raw/molit/ 의 가장 최신 날짜 폴더에서 CSV 를 DB 에 적재한다.
+
+    적재는 trade_id 기준 INSERT OR REPLACE 이므로 이미 있는 건은 갱신되고
+    신규분만 늘어난다(중복 적재로 건수가 부풀지 않는다).
+
+    반환: {"snapshot_date":..., "files":n, "sale_rows":n, "rent_rows":n, "errors":[...]}
+    """
+    from oci.crawler.molit_ingest import ingest_molit_csv_file
+
+    result = {"snapshot_date": None, "files": 0, "sale_rows": 0, "rent_rows": 0, "errors": []}
+    base_dir = os.path.join(str(root_dir), "data", "raw", "molit")
+    if not os.path.isdir(base_dir):
+        return result
+
+    # CSV 가 실제로 들어있는 폴더 중 최신 날짜
+    dated = []
+    for name in sorted(os.listdir(base_dir), reverse=True):
+        d = os.path.join(base_dir, name)
+        if os.path.isdir(d) and any(f.endswith(".csv") for f in os.listdir(d)):
+            dated.append((name, d))
+    if not dated:
+        return result
+
+    snapshot_date, csv_dir = dated[0]
+    result["snapshot_date"] = snapshot_date
+
+    for fname in sorted(os.listdir(csv_dir)):
+        if not fname.endswith(".csv"):
+            continue
+        fpath = os.path.join(csv_dir, fname)
+        is_rent = ("전세" in fname) or ("월세" in fname) or ("전월세" in fname)
+        try:
+            n = ingest_molit_csv_file(fpath, is_rent=is_rent, snapshot_date=snapshot_date)
+            result["files"] += 1
+            result["rent_rows" if is_rent else "sale_rows"] += n
+            print(f"[CSV 적재] {fname}: {n:,}건")
+        except Exception as e:
+            # 파일 하나가 깨져도 나머지는 적재하되, 실패를 감추지 않고 모아서 보고한다.
+            msg = f"{fname}: {type(e).__name__}: {e}"
+            result["errors"].append(msg)
+            print(f"[CSV 적재 실패] {msg}")
+
+    return result
+
+
+def _run_full_rescore(base_date: str = None):
+    """
+    실거래 → 통계 → 점수 전체 재계산 체인.
+
+    크롤링 / 재채점 / 실거래 갱신 세 경로가 모두 이 함수를 호출한다.
+    과거에는 경로마다 import 가 달라 refresh 만 존재하지 않는 모듈
+    (pc.scoring.quant_scorer, pc.scoring.l2_match)을 참조해 항상 실패했고,
+    그 예외를 삼켜 화면에는 완료로 표시됐다.
+
+    스코어러는 complex_area_stats / region_stats 를 '읽기만' 한다. 통계 재빌드
+    없이 스코어러만 돌리면 universe=0 이 되어 점수가 전혀 갱신되지 않으므로,
+    통계 재빌드를 이 체인에 포함한다.
+
+    실패를 삼키지 않는다. 예외는 호출자로 그대로 전파되어 화면에 실패로 표시된다.
+    """
+    from pc.features.build_complex_master import build_complex_master_from_molit
+    from pc.keymap.matcher import run_complex_matching
+    from pc.features.build_stats import build_complex_area_stats
+    from pc.features.region_stats import compute_and_store_region_stats
+    from pc.scoring.scorer_v2 import run_l1_scoring_v2
+    from pc.scoring.scorer_v3 import run_scoring
+    from pc.l2.deal_gap import update_all_properties_l2
+
+    if not base_date:
+        base_date = datetime.now().strftime("%Y-%m-%d")
+
+    # 1. 단지 마스터 구축: 실거래에서 고유 단지를 집계해 complexes 를 만들고
+    #    trades_sale/trades_rent 의 complex_code 를 채운다.
+    #    이 단계가 없으면 매칭이 전부 UNMATCHED 가 되어 이후가 전부 0이 된다.
+    master_cnt = build_complex_master_from_molit()
+    print(f"[Rescore] 단지 마스터 {master_cnt:,}건")
+
+    # 2. 단지 매칭: 마스터로 못 붙은 잔여 거래를 4단계 매칭으로 붙인다.
+    match_res = run_complex_matching()
+    print(f"[Rescore] 매칭 시도 {match_res.get('total', 0):,}건 / 성공 {match_res.get('matched', 0):,}건")
+
+    # 3~5. 통계 재빌드.
+    #      build_complex_area_stats 는 region_stats 를(excess_drop_rate 용),
+    #      compute_and_store_region_stats 는 complex_area_stats 를 읽는 상호 참조
+    #      관계이므로 build → region → build 2패스로 채운다.
+    cas_cnt = build_complex_area_stats(base_date)
+    reg_cnt = compute_and_store_region_stats(base_date)
+    cas_cnt = build_complex_area_stats(base_date)
+    print(f"[Rescore] 단지x평형 통계 {cas_cnt:,}건 / 지역 통계 {reg_cnt:,}건")
+
+    # 6~8. 점수 산출
+    run_l1_scoring_v2(base_date)
+    run_scoring(base_date)
+    gap_cnt = update_all_properties_l2(base_date)
+    print(f"[Rescore] 매물 괴리율 산출 {gap_cnt:,}건")
 
 def get_data_reference_date():
     """data/raw/molit/ 폴더 내 매매 CSV 또는 API 갱신 마커가 있는 가장 최신 날짜 폴더명을 반환합니다."""
@@ -116,10 +219,23 @@ def format_schools_str(comp: dict) -> str:
         parts.append(f"중 {int(round(float(m_dist)))}m")
     return " / ".join(parts)
 
+def _compute_days_ago(ref_date_str: str) -> int:
+    """
+    기준일 문자열(YYYY-MM-DD)로부터 경과 일수를 계산한다.
+    해석할 수 없으면 ValueError 를 던진다 — 조용히 넘기면 배너에서
+    기준일이 사라진 이유를 알 수 없다.
+    """
+    try:
+        ref_dt = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"기준일 형식이 올바르지 않습니다: {ref_date_str!r} ({e})") from e
+    return (datetime.now().date() - ref_dt).days
+
+
 @app.get("/api/properties")
 def get_properties():
     """screener.db 매물 정보와 v2/v1 스코어링 정보를 반환합니다."""
-    db_path = root_dir / "screener.db"
+    db_path = Path(Config.get_db_path())
     properties = []
     excluded_properties = []
     if db_path.exists():
@@ -356,24 +472,33 @@ def get_properties():
 
             conn.close()
         except Exception as e:
+            # 빈 목록을 200 으로 돌려주면 "매물 0건"으로 보여 실패가 감춰진다.
             print(f"[WebGUI] DB read error: {e}")
+            raise HTTPException(status_code=500, detail=f"매물 데이터를 읽지 못했습니다: {e}")
 
     properties.sort(key=lambda x: x.get("excess_drop_rate", 0.0) or 0.0, reverse=True)
     ref_date_str = get_data_reference_date()
     days_ago = None
+    data_ref_error = None
     if ref_date_str:
         try:
-            ref_dt = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
-            today_dt = datetime.now().date()
-            days_ago = (today_dt - ref_dt).days
-        except Exception:
-            pass
+            days_ago = _compute_days_ago(ref_date_str)
+        except ValueError as e:
+            # 조용히 넘기면 기준일이 왜 안 나오는지 알 수 없다.
+            # 전체 목록을 500 으로 죽이지는 않되(배너 하나 때문에 대시보드가
+            # 통째로 비면 더 나쁘다), 사유를 로그와 응답 모두에 남긴다.
+            print("!" * 70)
+            print(f"[WebGUI] 실거래 자료 기준일을 해석하지 못했습니다: {e}")
+            print("  data/raw/molit/ 아래 폴더명이 YYYY-MM-DD 형식인지 확인하세요.")
+            print("!" * 70)
+            data_ref_error = str(e)
     return {
         "count": len(properties),
         "excluded_count": len(excluded_properties),
         "last_updated": crawl_state["last_updated"] or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "data_ref_date": ref_date_str,
         "data_ref_days_ago": days_ago,
+        "data_ref_error": data_ref_error,
         "properties": properties,
         "excluded_properties": excluded_properties
     }
@@ -382,7 +507,7 @@ def get_properties():
 @app.get("/api/region_stats")
 def get_region_stats_api():
     """지역 및 면적 유형별 중위 하락률, 평단가 등 기초 통계를 반환합니다."""
-    db_path = root_dir / "screener.db"
+    db_path = Path(Config.get_db_path())
     res = []
     if db_path.exists():
         try:
@@ -395,12 +520,13 @@ def get_region_stats_api():
             conn.close()
         except Exception as e:
             print(f"[WebGUI] region_stats read error: {e}")
+            raise HTTPException(status_code=500, detail=f"지역 통계를 읽지 못했습니다: {e}")
     return res
 
 @app.get("/api/evidence")
 def get_evidence_api(complex_code: str, area_type: str):
     """특정 단지 x 평형에 대한 4-Block 스코어링 근거(Evidence JSON)를 반환합니다."""
-    db_path = root_dir / "screener.db"
+    db_path = Path(Config.get_db_path())
     if db_path.exists():
         try:
             conn = sqlite3.connect(db_path)
@@ -413,6 +539,7 @@ def get_evidence_api(complex_code: str, area_type: str):
                 return json.loads(row["evidence_json"])
         except Exception as e:
             print(f"[WebGUI] evidence read error: {e}")
+            raise HTTPException(status_code=500, detail=f"스코어링 근거를 읽지 못했습니다: {e}")
     return {"error": "Evidence not found"}
 
 @app.get("/api/regions")
@@ -426,7 +553,9 @@ def get_regions():
                 cfg = yaml.safe_load(f)
                 active_regions = cfg.get("target_regions", [])
         except Exception as e:
+            # 설정을 못 읽었는데 빈 목록을 주면 "선택된 지역 없음"으로 오인된다.
             print(f"[WebGUI] Config read error: {e}")
+            raise HTTPException(status_code=500, detail=f"config.yaml 을 읽지 못했습니다: {e}")
 
     return {
         "active_regions": active_regions,
@@ -456,6 +585,7 @@ def save_regions(payload: RegionsPayload):
 def _run_crawler_task():
     global crawl_state
     crawl_state["is_crawling"] = True
+    crawl_state["error"] = None
     crawl_state["progress_msg"] = "네이버 부동산 단지 및 매물 수집 중..."
     try:
         crawler = NaverCrawler()
@@ -463,27 +593,14 @@ def _run_crawler_task():
         
         crawl_state["progress_msg"] = "수집 완료 -> 퀀트 점수 분석(MLEngine, V2/V3) 실행 중..."
         MLEngine.run()
-        try:
-            from pc.scoring.scorer_v2 import run_l1_scoring_v2
-            from pc.scoring.scorer_v3 import run_scoring
-            from pc.l2.deal_gap import update_all_properties_l2
-            run_l1_scoring_v2()
-            run_scoring()
-            update_all_properties_l2()
-        except Exception as e_sc:
-            print(f"[Crawl Scorer Error] {e_sc}")
-
-        # HTML 뷰어 보고서도 갱신
-        try:
-            from pc.viewer.generate_report import generate_report
-            generate_report()
-        except:
-            pass
+        _run_full_rescore()
 
         crawl_state["progress_msg"] = "완료"
         crawl_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     except Exception as e:
+        crawl_state["error"] = str(e)
         crawl_state["progress_msg"] = f"오류 발생: {e}"
+        print(f"[Crawl Error] {e}")
     finally:
         crawl_state["is_crawling"] = False
 
@@ -499,28 +616,18 @@ def start_crawl(background_tasks: BackgroundTasks):
 def _run_rescore_task():
     global crawl_state
     crawl_state["is_crawling"] = True
+    crawl_state["error"] = None
     crawl_state["progress_msg"] = "로컬 DB 매물의 퀀트 점수(v1/v2/v3) 및 입지 가점 재계산 중 (API 미호출)..."
     try:
         MLEngine.run()
-        try:
-            from pc.scoring.scorer_v2 import run_l1_scoring_v2
-            from pc.scoring.scorer_v3 import run_scoring
-            from pc.l2.deal_gap import update_all_properties_l2
-            run_l1_scoring_v2()
-            run_scoring()
-            update_all_properties_l2()
-        except Exception as e2:
-            print(f"[Rescore V3/V2 Error] {e2}")
+        _run_full_rescore()
 
-        try:
-            from pc.viewer.generate_report import generate_report
-            generate_report()
-        except:
-            pass
         crawl_state["progress_msg"] = "퀀트 점수 재계산 완료"
         crawl_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     except Exception as e:
+        crawl_state["error"] = str(e)
         crawl_state["progress_msg"] = f"재계산 중 오류: {e}"
+        print(f"[Rescore Error] {e}")
     finally:
         crawl_state["is_crawling"] = False
 
@@ -539,59 +646,82 @@ def get_status():
 
 
 def _run_refresh_task():
-    """국토부 API 증분 갱신 → 재계산 → 기준일 갱신 백그라운드 태스크."""
+    """
+    [최신 자료 가져오기] 버튼의 백그라운드 태스크.
+
+      1) data/raw/molit/ 최신 폴더의 CSV 적재 (INSERT OR REPLACE 이므로 신규분만 증가)
+      2) 국토부 API 증분 (MOLIT_API_KEY 가 있을 때만, 없으면 건너뛰고 안내)
+      3) 단지 마스터 → 매칭 → 통계(2패스) → 점수 → 괴리율  (_run_full_rescore)
+    """
     try:
         crawl_state["is_crawling"] = True
-        crawl_state["progress_msg"] = "API 데이터 가져오는 중..."
+        crawl_state["error"] = None
+        # ── 1단계: 로컬 CSV 적재 ────────────────────────────────
+        crawl_state["progress_msg"] = "실거래 CSV 적재 중..."
+        csv_res = _ingest_latest_molit_csvs()
+        csv_note = ""
+        if csv_res["snapshot_date"]:
+            csv_note = (f"CSV {csv_res['files']}개 (매매 {csv_res['sale_rows']:,}건 · "
+                        f"전월세 {csv_res['rent_rows']:,}건, 기준 {csv_res['snapshot_date']})")
+            if csv_res["errors"]:
+                csv_note += f" · 실패 {len(csv_res['errors'])}개"
+        else:
+            csv_note = "CSV 없음(data/raw/molit/)"
+        print(f"[Refresh] {csv_note}")
 
-        from oci.crawler.molit_client import run_incremental_update
-        result = run_incremental_update(months=3)
+        # ── 2단계: 국토부 API 증분 (키가 있을 때만) ─────────────
+        trade_new = rent_new = trade_dup = rent_dup = 0
+        api_note = ""
+        if os.getenv("MOLIT_API_KEY"):
+            crawl_state["progress_msg"] = f"{csv_note} — API 증분 갱신 중..."
+            from oci.crawler.molit_client import run_incremental_update
+            result = run_incremental_update(months=3)
+            trade_new = result.get("trade_new", 0)
+            rent_new = result.get("rent_new", 0)
+            trade_dup = result.get("trade_dup", 0)
+            rent_dup = result.get("rent_dup", 0)
+            api_note = f"API 신규 {trade_new + rent_new}건 · 갱신 {trade_dup + rent_dup}건"
+        else:
+            # 키가 없으면 조용히 건너뛰지 않고 사용자에게 알린다.
+            api_note = "API 증분 건너뜀(MOLIT_API_KEY 미설정)"
+        print(f"[Refresh] {api_note}")
 
-        trade_new = result.get("trade_new", 0)
-        rent_new = result.get("rent_new", 0)
-        trade_dup = result.get("trade_dup", 0)
-        rent_dup = result.get("rent_dup", 0)
+        # ── 3단계: 단지 마스터 → 매칭 → 통계(2패스) → 점수 → 괴리율 ──
+        crawl_state["progress_msg"] = f"{csv_note} · {api_note} — 재계산 중..."
+        _run_full_rescore()
 
-        crawl_state["progress_msg"] = f"신규 매매 {trade_new}건 · 전월세 {rent_new}건 · 갱신 {trade_dup + rent_dup}건 — 재계산 중..."
+        # 기준일 마커는 API 로 실제 신규 자료를 받아왔을 때만 남긴다.
+        # 예전에는 무조건 오늘 날짜 폴더를 만들어, API 를 돌리지 않았거나
+        # 신규분이 0건이어도 배너가 "오늘 기준"이라고 표시했다.
+        # 자료 기준일은 실제 자료의 날짜여야 한다(CSV 만 적재했다면 CSV 스냅샷 날짜).
+        if (trade_new + rent_new) > 0:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            refresh_dir = os.path.join(str(root_dir), "data", "raw", "molit", today_str)
+            os.makedirs(refresh_dir, exist_ok=True)
+            marker_path = os.path.join(refresh_dir, "_api_refresh.txt")
+            with open(marker_path, "w", encoding="utf-8") as f:
+                f.write(f"API incremental update at {datetime.now().isoformat()}\n")
+                f.write(f"trade_new={trade_new}, rent_new={rent_new}, "
+                        f"trade_dup={trade_dup}, rent_dup={rent_dup}\n")
+        else:
+            print("[Refresh] API 신규분이 없어 기준일 마커를 만들지 않습니다 "
+                  "(배너는 실제 자료 날짜를 그대로 표시합니다).")
 
-        # 재계산
-        try:
-            from pc.scoring.quant_scorer import run_scoring
-            from pc.scoring.l2_match import update_all_properties_l2
-            run_scoring()
-            update_all_properties_l2()
-        except Exception as e2:
-            print(f"[Refresh Rescore Error] {e2}")
-
-        try:
-            from pc.viewer.generate_report import generate_report
-            generate_report()
-        except:
-            pass
-
-        # 기준일을 현재로 갱신 (data/raw/molit/ 폴더에 오늘 날짜 디렉토리 생성)
-        import os
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        refresh_dir = os.path.join(str(root_dir), "data", "raw", "molit", today_str)
-        os.makedirs(refresh_dir, exist_ok=True)
-        # API 갱신 마커 파일 생성
-        marker_path = os.path.join(refresh_dir, "_api_refresh.txt")
-        with open(marker_path, "w", encoding="utf-8") as f:
-            f.write(f"API incremental update at {datetime.now().isoformat()}\n")
-            f.write(f"trade_new={trade_new}, rent_new={rent_new}, trade_dup={trade_dup}, rent_dup={rent_dup}\n")
-
-        crawl_state["progress_msg"] = f"완료 · 신규 {trade_new + rent_new}건 · 갱신 {trade_dup + rent_dup}건"
+        crawl_state["progress_msg"] = f"완료 · {csv_note} · {api_note}"
         crawl_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         crawl_state["last_refresh_result"] = {
             "trade_new": trade_new,
             "rent_new": rent_new,
             "trade_dup": trade_dup,
             "rent_dup": rent_dup,
-            "errors": result.get("errors", []),
+            "csv": csv_res,
+            "api_skipped": not bool(os.getenv("MOLIT_API_KEY")),
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
+        crawl_state["error"] = str(e)
         crawl_state["progress_msg"] = f"갱신 중 오류: {e}"
+        print(f"[Refresh Error] {e}")
     finally:
         crawl_state["is_crawling"] = False
 

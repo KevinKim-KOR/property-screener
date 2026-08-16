@@ -69,10 +69,18 @@ property-screener/
 │   ├── PROJECT_STATUS.md                # 마일스톤 및 개발 상태 추적 문서
 │   └── DEVELOPMENT_SUMMARY.md           # 본 종합 개발 명세서
 │
+├── reports/                             # [산출물 전용 디렉토리] 코드 폴더에 생성물을 섞지 않는다
+│   ├── report.html                      # (생성물, git 미추적) generate_report.py 출력
+│   ├── ml_results.json                  # (생성물, git 미추적) scorer.py 출력
+│   └── self_check_*.md                  # (추적 유지) 점검 이력
+│
 ├── config.yaml                          # 관심 법정동 지역 및 필터 기준 설정
 ├── .env                                 # 카카오 API KEY 및 텔레그램 BOT 토큰 (시크릿)
 ├── start.bat                            # [Windows] 포트 정리 후 웹 GUI 대시보드 자동 실행 스크립트
-└── stop.bat                             # [Windows] 로컬 서버(포트 8000/8585) 안전 종료 스크립트
+├── stop.bat                             # [Windows] 로컬 서버(포트 8000/8585) 안전 종료 스크립트
+├── crawl_now.sh                         # [macOS/Linux] crawl_now.bat 대응 즉시 크롤링 스크립트
+├── start.sh                             # [macOS/Linux] start.bat 대응 웹 GUI 대시보드 실행 스크립트
+└── stop.sh                              # [macOS/Linux] stop.bat 대응 안전 종료 스크립트 (프로젝트 소유 프로세스만 종료)
 ```
 
 ---
@@ -173,6 +181,31 @@ DB 연결(`init_db()`) 시 스키마가 자동으로 마이그레이션되어 �
    - 자동으로 기존 포트(8585) 충돌 프로세스를 정리하고 로컬 웹 GUI 서버(`http://127.0.0.1:8585`)를 구동합니다.
 2. **대시보드 종료**:
    - `stop.bat` 더블 클릭 (또는 터미널에서 `.\stop.bat` 실행)
+
+### 4.1-B macOS / Linux 환경 실행 (`start.sh` / `stop.sh` / `crawl_now.sh`)
+Windows 배치 파일과 1:1로 대응하는 셸 스크립트를 제공합니다. 터미널에서 프로젝트 루트로 이동한 뒤 실행합니다.
+
+1. **최초 1회 준비**:
+   ```bash
+   cp .env.example .env      # 텔레그램 토큰 / 카카오 REST API Key 등을 채워 넣습니다
+   chmod +x start.sh stop.sh crawl_now.sh
+   ```
+   `.venv` 가상환경 생성과 `pc/requirements.txt` 설치는 `start.sh`가 자동으로 수행합니다.
+2. **대시보드 시작**: `./start.sh`
+   - 기존 스크리너 프로세스 정리 → `.venv` 확인/생성 → 종속성 설치 → 웹 GUI 서버(`http://127.0.0.1:8585`) 백그라운드 구동 → 기본 브라우저 자동 오픈 순으로 진행됩니다.
+   - 서버 로그는 `logs/web_app.log`, 프로세스 PID는 `.web_app.pid`에 기록됩니다.
+   - **`reports/report.html` 생성은 기동 경로에서 제외**했습니다. 웹 대시보드는 이 파일을 쓰지 않습니다. 필요할 때만 아래 명령으로 직접 생성하세요.
+     ```bash
+     ./.venv/bin/python -m pc.viewer.generate_report    # macOS/Linux
+     .\.venv\Scripts\python.exe -m pc.viewer.generate_report   # Windows
+     ```
+3. **대시보드 종료**: `./stop.sh`
+   - PID 파일 → 포트(8585) → 프로세스명(`pc/web_app.py`, `pc/main.py`) 순으로 탐색하되, **해당 프로세스가 이 프로젝트 소유인지 확인한 뒤에만 종료**합니다.
+   - `stop.bat`과 달리 **레거시 포트 8000은 건드리지 않습니다.** 8000은 커밋 `d705b16`에서 8585로 옮긴 뒤 이 프로젝트가 더 이상 바인딩하지 않으며, 다른 프로젝트의 개발 서버를 내리는 사고를 막기 위함입니다.
+   - 소유 판별은 ① 커맨드라인이 `pc/web_app.py`·`pc/main.py`인지 ② `.venv` 인터프리터로 구동됐는지 ③ 부모 계보가 스크리너인지 ④ (계보가 끊긴 uvicorn reload 자식 대비) cwd가 프로젝트 루트인 python인지 순으로 확인합니다.
+4. **실시간 네이버 부동산 수집**: `./crawl_now.sh` (`oci/requirements.txt` 설치 후 `oci/main.py` 실행)
+
+> **참고**: macOS 기본 Python 3.9(arm64)에서 전체 종속성 설치 및 대시보드 구동이 검증되었습니다.
 
 ### 4.2 웹 대시보드 활용 3단계
 1. 브라우저에서 `http://127.0.0.1:8585` 에 접속합니다.

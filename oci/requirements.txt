@@ -1,0 +1,4 @@
+pyyaml
+requests
+python-dotenv
+curl_cffi

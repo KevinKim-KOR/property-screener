@@ -1,6 +1,6 @@
 # PC-OCI 하이브리드 부동산 퀀트 스크리너 개발 현황 및 인수인계서
 
-> **💡 전체 개발 명세서 및 가이드**: 아키텍처, 5-Factor 퀀트 공식, 11개 대시보드 컬럼 설명 및 사용법은 [종합 개발 명세서(DEVELOPMENT_SUMMARY.md)](file:///e:/AI%20Study/property/docs/DEVELOPMENT_SUMMARY.md)를 참고하세요.
+> **💡 전체 개발 명세서 및 가이드**: 아키텍처, 5-Factor 퀀트 공식, 11개 대시보드 컬럼 설명 및 사용법은 [종합 개발 명세서(DEVELOPMENT_SUMMARY.md)](./DEVELOPMENT_SUMMARY.md)를 참고하세요.
 
 이 문서는 데스크탑 PC 및 노트북 환경 간 개발 작업을 상호 이어서 진행할 수 있도록 작성된 현황 문서입니다.
 
@@ -90,9 +90,10 @@ PC에서 작업을 이어서 하실 때 아래 순서대로 실행하세요:
    - **대시보드 분석 실행**: 프로젝트 루트의 **`start.bat`을 더블 클릭**하세요.
      1. 기존 프로세스 Clean up (`stop.bat` 자동 호출)
      2. 가상환경(`.venv`) 확인 및 종속성 자동 설치
-     3. 로컬 시각적 보고서(`report.html`) 사전 생성
-     4. 전용 콘솔 창(`"PC Property Quant Screener"`)에서 분석 파이프라인 구동
-     5. **기본 웹 브라우저가 자동 실행**되어 `pc/viewer/report.html` 대시보드를 바로 띄워줍니다. (API 미호출, 차단 위험 0%)
+     3. 전용 콘솔 창(`"PC Property Quant Screener"`)에서 웹 GUI 서버 구동
+     4. **기본 웹 브라우저가 자동 실행**되어 `http://127.0.0.1:8585` 웹 대시보드를 띄웁니다. (API 미호출, 차단 위험 0%)
+   - **정적 보고서(`reports/report.html`)는 기동 시 생성하지 않습니다.** 웹 대시보드가 사용하지 않으므로, 필요할 때 `python -m pc.viewer.generate_report` 로 직접 생성하세요.
+   - macOS/Linux 에서는 같은 흐름을 `./start.sh` / `./stop.sh` / `./crawl_now.sh` 로 실행합니다.
    - **실시간 네이버 부동산 단지 수집 (`crawl_now.bat`)**:
      - 원할 때 **`crawl_now.bat`을 더블 클릭**하면 네이버 부동산 API에서 신규 매물을 스크래핑해 `screener.db`를 최신화합니다.
      - **단지가 87곳인 이유**: 현재 `config.yaml`의 `target_regions`에 기본 설정으로 **서초구 반포동(63곳)** 및 **강남구 개포동(24곳)**만 활성화되어 있습니다.

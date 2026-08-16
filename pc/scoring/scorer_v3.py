@@ -30,18 +30,44 @@ class ScoreRunResult:
     excluded_by_reason: Dict[str, int]
     duration_sec: float
 
+class ScoringConfigError(RuntimeError):
+    """스코어링 설정 파일을 읽지 못해 중단한 경우."""
+
+
 def load_scoring_v3_config(config_path: str = "config/scoring_v3.yaml") -> Dict:
     """
     config/scoring_v3.yaml에서 가중치·임계값을 동적 로드한다 (C2).
-    파일이 없거나 읽을 수 없는 경우 기본 설정을 반환한다.
+
+    설정을 못 읽으면 중단한다. 과거에는 경고 한 줄만 찍고 빈 dict 를 돌려주어
+    설계와 다른 기본 가중치로 점수가 산출됐고, 화면에는 정상으로 보였다.
+    점수 자체가 달라지는 문제이므로 조용히 넘어가서는 안 된다.
     """
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except Exception as e:
-            print(f"[Warn] '{config_path}' 로드 실패 ({e}), 기본값 사용.")
-    return {}
+    # CWD 에 의존하면 실행 위치에 따라 없는 파일이 되어 버린다.
+    # 상대경로면 프로젝트 루트 기준으로 해석한다.
+    if not os.path.isabs(config_path):
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        candidate = os.path.join(root, config_path)
+        if os.path.exists(candidate):
+            config_path = candidate
+
+    if not os.path.exists(config_path):
+        raise ScoringConfigError(
+            f"스코어링 설정 파일을 찾을 수 없습니다: '{config_path}' "
+            f"(작업 디렉토리: {os.getcwd()}). 설정 없이 점수를 내면 설계와 다른 "
+            f"가중치가 적용되므로 중단합니다."
+        )
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+    except Exception as e:
+        raise ScoringConfigError(
+            f"스코어링 설정 파일을 읽을 수 없습니다: '{config_path}' ({e}). 중단합니다."
+        ) from e
+    if not cfg:
+        raise ScoringConfigError(
+            f"스코어링 설정 파일이 비어 있습니다: '{config_path}'. 중단합니다."
+        )
+    return cfg
 
 def _aggregate_blocks_v3(b_val: float, b_flw: float, b_loc: float, b_qty: float,
                          cov_a: float, cov_b: float, cov_c: float, cov_d: float,

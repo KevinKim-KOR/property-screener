@@ -81,6 +81,15 @@ class ComplexMatcher:
                         "norm_road": ""
                     })
 
+    def _candidates_in_sgg(self, sgg_cd: str):
+        """
+        같은 자치구(sgg_cd)에 속한 단지 후보만 돌려준다.
+
+        자치구 검증은 반드시 이 함수 하나만 쓴다. 티어마다 조건을 따로 쓰면
+        이번처럼 한 곳에서 빠져도 드러나지 않는다.
+        """
+        return [c for c in self.complex_list if c["sgg_cd"] == sgg_cd]
+
     def match(self, sgg_cd: str, umd_nm: str, bonbun: Optional[int], bubun: Optional[int],
               road_name: Optional[str], apt_name_raw: str, build_year: Optional[int]) -> Tuple[Optional[str], float, str]:
         """
@@ -90,10 +99,17 @@ class ComplexMatcher:
         norm_name = normalize_apt_name(apt_name_raw)
         norm_road = normalize_road_name(road_name)
 
+        # 자치구(sgg_cd)가 다르면 어떤 티어에서도 같은 단지일 수 없다.
+        # 티어마다 이 검사를 따로 쓰다가 TIER_3 에서만 빠져, 서울 전역에서
+        # 이름이 같은 단지들이 한 덩어리로 묶였다(잠원동 '동아'에 성수동·
+        # 상일동·둔촌동·상도동 거래가 붙어 하락률 -79%, 전세가율 141%).
+        # 후보 자체를 한 번만 걸러서 모든 티어가 같은 후보군을 쓰게 한다.
+        candidates = self._candidates_in_sgg(sgg_cd)
+
         # 1. Tier 1: 지번 완전 일치 (본번, 부번이 존재하고 단지명 유사)
         if bonbun is not None:
-            for c in self.complex_list:
-                if (c["sgg_cd"] == sgg_cd and c["bonbun"] == bonbun and 
+            for c in candidates:
+                if (c["bonbun"] == bonbun and
                     (c["bubun"] or 0) == (bubun or 0)):
                     # 단지명 정규화 일치 시 1.0
                     if c["norm_name"] == norm_name:
@@ -101,12 +117,12 @@ class ComplexMatcher:
 
         # 2. Tier 2: 도로명 주소 정규화 일치
         if norm_road:
-            for c in self.complex_list:
-                if c["sgg_cd"] == sgg_cd and c["norm_road"] and c["norm_road"] == norm_road:
+            for c in candidates:
+                if c["norm_road"] and c["norm_road"] == norm_road:
                     return c["complex_code"], 0.95, "TIER_2_ROAD"
 
         # 3. Tier 3: 단지명 정규화 일치 (+ 건축년도 선택 일치)
-        for c in self.complex_list:
+        for c in candidates:
             if c["norm_name"] == norm_name:
                 if build_year and c["build_year"] and abs(build_year - c["build_year"]) <= 1:
                     return c["complex_code"], 0.95, "TIER_3_NAME_YEAR"
@@ -115,12 +131,11 @@ class ComplexMatcher:
         # 4. Tier 4: Fuzzy 문자열 유사도 (difflib SequenceMatcher >= 0.85)
         best_code = None
         best_ratio = 0.0
-        for c in self.complex_list:
-            if c["sgg_cd"] == sgg_cd:
-                ratio = difflib.SequenceMatcher(None, norm_name, c["norm_name"]).ratio()
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_code = c["complex_code"]
+        for c in candidates:
+            ratio = difflib.SequenceMatcher(None, norm_name, c["norm_name"]).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_code = c["complex_code"]
 
         if best_code and best_ratio >= 0.85:
             return best_code, best_ratio, "TIER_4_FUZZY"
@@ -183,4 +198,49 @@ def run_complex_matching() -> Dict[str, int]:
 
         conn.commit()
 
+    verify_matching_integrity()
     return stats
+
+
+class CrossSggMatchError(RuntimeError):
+    """실거래가 다른 자치구의 단지에 매칭된 경우."""
+
+
+def verify_matching_integrity() -> None:
+    """
+    매칭 결과 검증: 실거래의 자치구와 매칭된 단지의 자치구가 하나라도
+    다르면 예외를 던진다.
+
+    조용히 통과시키면 서로 다른 동네의 거래가 한 단지로 묶여 전고점·하락률·
+    전세가율이 통째로 망가진다. 실제로 그 상태가 오래 드러나지 않았다.
+    """
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        for table in ("trades_sale", "trades_rent"):
+            cur.execute(f"""
+                SELECT t.complex_code, c.complex_name, c.sgg_cd AS complex_sgg,
+                       t.sgg_cd AS trade_sgg, COUNT(*) AS n
+                FROM {table} t
+                JOIN complexes c ON t.complex_code = c.complex_code
+                WHERE t.complex_code IS NOT NULL AND t.sgg_cd != c.sgg_cd
+                GROUP BY t.complex_code, c.sgg_cd, t.sgg_cd
+                ORDER BY n DESC
+                LIMIT 5
+            """)
+            bad = [dict(r) for r in cur.fetchall()]
+            if bad:
+                cur.execute(f"""
+                    SELECT COUNT(*) AS n FROM {table} t
+                    JOIN complexes c ON t.complex_code = c.complex_code
+                    WHERE t.complex_code IS NOT NULL AND t.sgg_cd != c.sgg_cd
+                """)
+                total = cur.fetchone()["n"]
+                sample = "; ".join(
+                    f"{b['complex_name']}({b['complex_sgg']}) <- 거래 {b['trade_sgg']} {b['n']}건"
+                    for b in bad
+                )
+                raise CrossSggMatchError(
+                    f"{table}: 자치구가 다른 매칭 {total:,}건이 발견되었습니다. "
+                    f"서로 다른 동네의 거래가 한 단지로 묶이면 전고점·하락률·전세가율이 "
+                    f"모두 잘못됩니다. 예: {sample}"
+                )

@@ -63,8 +63,13 @@ class TelegramNotifier:
         if ms.get("evidence_json"):
             try:
                 ev = json.loads(ms["evidence_json"])
-            except Exception:
-                pass
+            except (ValueError, TypeError) as e:
+                # 삼키면 근거(4-Block Evidence)가 빈 채로 알림이 발송된다.
+                # 잘못된 근거로 매수 판단을 유도하느니 발송을 중단한다.
+                raise ValueError(
+                    f"스코어링 근거(evidence_json) 파싱 실패 - 알림을 발송하지 않습니다: "
+                    f"{c_name} ({at}) / {e}"
+                ) from e
 
         blocks = ev.get("blocks", {})
         val_score = blocks.get("Value", 0.0)

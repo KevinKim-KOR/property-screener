@@ -3,15 +3,22 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 
+import sys
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+from common.config_loader import Config
+
 def generate_report():
     """
     screener.db (properties 테이블)의 단지 매물 메타정보와
     ml_results.json의 퀀트 스코어를 조인하여 시각적 HTML 대시보드(report.html)를 생성합니다.
     """
     root_dir = Path(__file__).resolve().parent.parent.parent
-    db_path = root_dir / "screener.db"
-    json_path = root_dir / "ml_results.json"
-    output_html_path = Path(__file__).resolve().parent / "report.html"
+    # 생성물은 코드 폴더(pc/)가 아닌 산출물 전용 디렉토리(reports/)에 둔다.
+    reports_dir = root_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    db_path = Path(Config.get_db_path())
+    json_path = reports_dir / "ml_results.json"
+    output_html_path = reports_dir / "report.html"
 
     # 1. ml_results.json 로드 (딕셔너리 또는 리스트 형태 모두 호환 처리)
     ml_data = {}
@@ -26,7 +33,12 @@ def generate_report():
                         pid = item.get("property_id") or item.get("id") or str(len(ml_data)+1)
                         ml_data[pid] = item
         except Exception as e:
-            print(f"[ReportGenerator] ml_results.json 파싱 경고: {e}")
+            # 리포트 생성기는 부가 기능이므로 본체를 막지 않는다.
+            # 다만 조용히 넘어가지 않도록 터미널에 눈에 띄게 출력한다.
+            print("!" * 70)
+            print(f"[ReportGenerator] 경고: ml_results.json 을 읽지 못했습니다 -> {e}")
+            print("  점수 없이 리포트를 생성합니다. reports/report.html 의 퀀트점수는 신뢰할 수 없습니다.")
+            print("!" * 70)
 
     # 2. screener.db 에서 단지 정보 로드
     properties = []
@@ -77,7 +89,10 @@ def generate_report():
                     })
             conn.close()
         except Exception as e:
-            print(f"[ReportGenerator] screener.db 조회 경고: {e}")
+            print("!" * 70)
+            print(f"[ReportGenerator] 경고: screener.db 를 조회하지 못했습니다 -> {e}")
+            print("  단지 정보가 빠진 채로 리포트가 생성됩니다.")
+            print("!" * 70)
 
     # 만약 DB가 비어있지만 ml_data에 항목이 있다면 ml_data 기준으로 복원
     if not properties and ml_data:

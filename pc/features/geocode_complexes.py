@@ -7,9 +7,11 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from pc.features.api_failures import ApiFailureTracker
 
 sys.path.insert(0, os.path.abspath('.'))
-load_dotenv("e:/AI Study/property/.env")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 SGG_MAP = {
     "11650": "서울 서초구",
@@ -39,6 +41,8 @@ def geocode_all_complexes():
     
     print(f"Total complexes: {total_cnt}, to geocode: {len(rows)}")
     
+    # 카카오 API 호출 실패 집계 (개별은 넘기되 과반 실패면 중단)
+    api_tracker = ApiFailureTracker("지오코딩", len(rows))
     success_cnt = 0
     fail_cnt = 0
     failed_list = []
@@ -64,7 +68,8 @@ def geocode_all_complexes():
                         lat = float(docs[0]["y"])
                         lng = float(docs[0]["x"])
             except Exception as e:
-                pass
+                # 개별 실패는 넘어가되 집계한다. 과반 실패면 tracker 가 중단시킨다.
+                api_tracker.record_failure(f"{comp_nm}/지번", e)
         
         # 2. 실패하면 도로명 주소로 재시도
         if lat is None:
@@ -90,7 +95,7 @@ def geocode_all_complexes():
                             lat = float(docs[0]["y"])
                             lng = float(docs[0]["x"])
                 except Exception as e:
-                    pass
+                    api_tracker.record_failure(f"{comp_nm}/도로명", e)
         
         # 3. 결과 처리
         if lat is not None and lng is not None:
@@ -122,6 +127,7 @@ def geocode_all_complexes():
     print(f"좌표 확보: {total_geocoded}")
     print(f"실패: {total_failed}")
     
+    api_tracker.report()
     print(f"\n=== [ 실패한 단지 목록 (총 {len(failed_list)}곳 중 앞 10곳) ] ===")
     for idx, (cc, reg_nm, comp_nm, bonbun, bubun, road_nm) in enumerate(failed_list[:10], 1):
         print(f"  {idx}. [{reg_nm}] {comp_nm} | 본부번:{bonbun}-{bubun} | 도로명:{road_nm}")
@@ -135,9 +141,11 @@ def geocode_all_complexes():
     for idx, (cc, reg_nm, comp_nm, bonbun, bubun, road_nm) in enumerate(failed_list, 1):
         out.append(f"{idx}. [{reg_nm}] {comp_nm} | 본번:{bonbun} 부번:{bubun} | 도로명:{road_nm}")
     
-    with open(r"C:\Users\minan\.gemini\antigravity\brain\ddff3f34-9a5d-4f36-929c-f33ed2ccc290\scratch\geocode_report.txt", "w", encoding="utf-8") as f:
+    report_path = PROJECT_ROOT / "reports" / "geocode_report.txt"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
-    print("Report saved to scratch/geocode_report.txt")
+    print(f"Report saved to {report_path}")
 
 if __name__ == "__main__":
     geocode_all_complexes()
