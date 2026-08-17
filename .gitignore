@@ -48,3 +48,5 @@ data/
 reports/*.html
 reports/ml_results.json
 reports/ml_results.prev.json
+# 입지 수집 스크립트가 실행마다 재생성하는 리포트
+reports/*_report.txt

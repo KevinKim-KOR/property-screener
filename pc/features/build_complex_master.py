@@ -57,7 +57,32 @@ def build_complex_master_from_molit() -> int:
         groups = [dict(r) for r in cur.fetchall()]
         assert all(str(g["sgg_cd"]) in ("11650", "11680") for g in groups), "C8 위반: 서초구/강남구 외 다른 시군구 데이터가 적재되었습니다!"
 
-        # 2. complexes 테이블 클린업 (Phase 1-A 전용 국토부 마스터 적재)
+        # 2. 기존 단지의 '외부에서 채운 값'을 보존한다.
+        #    complexes 는 아래에서 통째로 지우고 다시 만드는데, 카카오 API 로 채운
+        #    좌표·역세권·학교·학원가는 실거래 자료에서 다시 만들 수 없다.
+        #    complex_code 는 (자치구, 법정동, 본번, 부번, 단지명, 건축년도)의
+        #    해시라 재구축해도 같은 값이 나오므로 이 키로 되살릴 수 있다.
+        existing_cols = {r["name"] for r in cur.execute("PRAGMA table_info(complexes)")}
+        enrich_cols = [c for c in (
+            "lat", "lng",
+            "subway_dist_m", "subway_name", "subway_walk_min",
+            "elem_school_dist_m", "elem_school_name",
+            "mid_school_dist_m", "mid_school_name",
+            "academies_count",
+            "total_households", "floor_area_ratio", "building_coverage",
+            "cbd_transit_min", "road_name",
+        ) if c in existing_cols]
+        preserved = {}
+        if enrich_cols:
+            cur.execute(f"SELECT complex_code, {', '.join(enrich_cols)} FROM complexes")
+            for r in cur.fetchall():
+                vals = {c: r[c] for c in enrich_cols if r[c] is not None}
+                if vals:
+                    preserved[r["complex_code"]] = vals
+        if preserved:
+            print(f"[ComplexMaster] 기존 단지 {len(preserved):,}곳의 입지·규모 값을 보존합니다.")
+
+        # 3. complexes 테이블 클린업 (Phase 1-A 전용 국토부 마스터 적재)
         cur.execute("DELETE FROM complexes")
 
         complex_rows = []
@@ -78,7 +103,6 @@ def build_complex_master_from_molit() -> int:
             raw_key = f"{sgg_cd}_{umd_nm}_{bonbun}_{bubun}_{apt_name}_{build_year}"
             md5_hash = hashlib.md5(raw_key.encode("utf-8")).hexdigest()[:8].upper()
             c_code = f"MOLIT_{sgg_cd}_{md5_hash}"
-            # total_households는 임시로 300(폴백 기준), brand는 매칭되는 주요 브랜드 추출
             brand = extract_brand(apt_name)
 
             complex_rows.append((
@@ -87,16 +111,20 @@ def build_complex_master_from_molit() -> int:
                 str(sgg_cd),
                 "", # umd_cd
                 umd_nm,
-                int(build_year) if build_year else 2005,
-                300, # total_households
-                1,   # total_dongs
-                250.0, # floor_area_ratio
-                20.0,  # building_coverage
+                int(build_year) if build_year else None,
+                # 아래 항목은 국토부 실거래 자료에 없다. 예전에는 전 단지에 같은
+                # 상수(세대수 300, 용적률 250, 좌표 0, 역세권 500m 등)를 넣어
+                # 값이 있는 것처럼 보였고, 그 탓에 단지 간 비교가 불가능했다.
+                # 없는 값은 없는 대로 둔다(결측). 채울 수 있는 것은 아래에서 되살린다.
+                None,  # total_households  — 출처 미확보
+                None,  # total_dongs       — 출처 미확보
+                None,  # floor_area_ratio  — 출처 미확보
+                None,  # building_coverage — 출처 미확보
                 brand,
-                0.0, 0.0, # lat, lng
-                500.0, "", 10.0, # subway_dist_m, subway_name, subway_walk_min
-                300.0, # elem_school_dist_m
-                25.0,  # cbd_transit_min
+                None, None,        # lat, lng            — 카카오 지오코딩으로 채움
+                None, None, None,  # subway_dist_m/name/walk_min — 카카오로 채움
+                None,  # elem_school_dist_m — 카카오로 채움
+                None,  # cbd_transit_min    — 출처 미확보
                 int(bonbun),
                 int(bubun),
                 "", # road_name
@@ -118,6 +146,17 @@ def build_complex_master_from_molit() -> int:
                 area_min_m2, area_max_m2, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, complex_rows)
+
+        # 4-1. 보존해 둔 입지·규모 값 복원
+        restored = 0
+        for c_code, vals in preserved.items():
+            sets = ", ".join(f"{c} = ?" for c in vals)
+            cur.execute(f"UPDATE complexes SET {sets} WHERE complex_code = ?",
+                        (*vals.values(), c_code))
+            restored += cur.rowcount
+        if preserved:
+            print(f"[ComplexMaster] 입지·규모 값 복원: {restored:,}곳 "
+                  f"(보존 대상 {len(preserved):,}곳 중)")
 
         count = len(complex_rows)
 
