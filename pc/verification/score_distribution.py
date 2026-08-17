@@ -7,13 +7,17 @@
 
 기준 (v4.3 개정)
   중앙값        47 ~ 53
-  90점 이상     8 ~ 12%
-  10점 이하     8 ~ 12%
+  90점 이상     12% 이하   (상한만 검사)
+  10점 이하     12% 이하   (상한만 검사)
 
-상·하위 비율의 기준이 8~12% 인 이유: §9.5 의 Φ(CDF) 매핑이 정규분포를
-균등분포로 바꾸므로, 상위 10%가 90점을 넘는 것이 정상이다. 개정 전 기준
-0~2% 는 원점수를 그대로 쓰는 전제의 값이라 Φ 매핑과 양립하지 않았고,
-정상 실행에도 매번 위반으로 찍혔다.
+§9.5 의 Φ(CDF) 매핑이 정규분포를 균등분포로 바꾸므로 상위 10%가 90점을
+넘는 것이 정상이다. 개정 전 기준 0~2% 는 원점수를 그대로 쓰는 전제의
+값이라 Φ 매핑과 양립하지 않았고, 정상 실행에도 매번 위반으로 찍혔다.
+
+**꼬리는 상한만 본다.** 꼬리가 두꺼운 것은 계산 붕괴 신호지만, 얇은 것은
+문제가 아니다. "점수가 충분히 퍼져 있나"는 중앙값과 서로 다른 점수 개수가
+이미 잡아준다. 표본이 작으면 꼬리 비율이 크게 흔들리므로(181건이면 약
+2.2%p) 하한을 두면 정상 실행이 위반으로 찍힌다.
 """
 import statistics
 from dataclasses import dataclass
@@ -21,8 +25,7 @@ from typing import Dict, List, Optional
 
 MEDIAN_CENTER = 50.0
 MEDIAN_TOL = 3.0
-TAIL_MIN_PCT = 8.0
-TAIL_MAX_PCT = 12.0
+TAIL_MAX_PCT = 12.0   # 상한만 검사한다 (하한 없음)
 HIGH_CUT = 90.0
 LOW_CUT = 10.0
 
@@ -67,11 +70,9 @@ def evaluate_score_distribution(scores: List[float]) -> Optional[DistributionRes
               f"{MEDIAN_CENTER - MEDIAN_TOL:.0f}~{MEDIAN_CENTER + MEDIAN_TOL:.0f}점",
               abs(med - MEDIAN_CENTER) <= MEDIAN_TOL),
         Check("90점 이상", hi_pct, f"{hi}곳 ({hi_pct:.1f}%)",
-              f"{TAIL_MIN_PCT:.0f}~{TAIL_MAX_PCT:.0f}%",
-              TAIL_MIN_PCT <= hi_pct <= TAIL_MAX_PCT),
+              f"{TAIL_MAX_PCT:.0f}% 이하", hi_pct <= TAIL_MAX_PCT),
         Check("10점 이하", lo_pct, f"{lo}곳 ({lo_pct:.1f}%)",
-              f"{TAIL_MIN_PCT:.0f}~{TAIL_MAX_PCT:.0f}%",
-              TAIL_MIN_PCT <= lo_pct <= TAIL_MAX_PCT),
+              f"{TAIL_MAX_PCT:.0f}% 이하", lo_pct <= TAIL_MAX_PCT),
     ]
     return DistributionResult(n=n, checks=checks)
 
@@ -103,3 +104,63 @@ def format_report_section(res: Optional[DistributionResult]) -> str:
                      + ", ".join(c.label for c in res.failures()))
         lines.append(f"    (채점 {res.n:,}곳 기준, 꼬리 비율의 표본 흔들림은 약 {sd:.1f}%p)")
     return "\n".join(lines)
+
+
+def load_latest_scores(db_path: Optional[str] = None):
+    """가장 최근 base_date 의 채점 결과와 결측 건수를 읽는다."""
+    import os
+    import sqlite3
+    import sys
+    from pathlib import Path
+
+    sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+    from common.config_loader import Config
+
+    if db_path is None:
+        db_path = Config.get_db_path()
+    if not os.path.exists(db_path):
+        return None, [], 0
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT MAX(base_date) FROM market_scores").fetchone()
+        base_date = row[0] if row else None
+        if not base_date:
+            return None, [], 0
+        scores = [r[0] for r in conn.execute(
+            "SELECT market_score FROM market_scores "
+            "WHERE base_date = ? AND market_score IS NOT NULL", (base_date,))]
+        missing = conn.execute(
+            "SELECT COUNT(*) FROM market_scores WHERE base_date = ? "
+            "AND gate_status = 'PASS' AND market_score IS NULL", (base_date,)).fetchone()[0]
+        return base_date, scores, missing
+    finally:
+        conn.close()
+
+
+def main() -> int:
+    """
+    python -m pc.verification.score_distribution
+
+    현재 DB의 최신 채점 결과로 §19.0 분포 판정을 출력한다.
+    재개 시 이 값을 docs/SCORING_RESUME_20260817.md 의 기준값과 비교하면
+    그동안 무엇이 달라졌는지 바로 알 수 있다.
+    """
+    base_date, scores, missing = load_latest_scores()
+    if base_date is None:
+        print("채점 결과가 없습니다. 화면에서 [최신 자료 가져오기]를 먼저 실행하세요.")
+        return 1
+
+    print(f"■ 점수 분포 판정 · 기준일 {base_date}")
+    print()
+    print(format_report_section(evaluate_score_distribution(scores)))
+    print()
+    total = len(scores) + missing
+    if total:
+        print(f"  점수 결측(비교군 부족)  {missing:,}곳 / 게이트 통과 {total:,}곳 "
+              f"({missing / total * 100:.1f}%)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

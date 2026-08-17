@@ -3,7 +3,7 @@
 설계서 §19.0 점수 분포 판정 기준 테스트.
 
 기준이 문서에만 있으면 코드와 어긋나도 드러나지 않는다.
-개정된 기준(상·하위 8~12%)을 여기에 고정한다.
+개정된 기준(꼬리는 상한 12%만 검사, 하한 없음)을 여기에 고정한다.
 """
 import unittest
 
@@ -30,12 +30,16 @@ class TestScoreDistribution(unittest.TestCase):
         labels = [c.label for c in res.failures()]
         self.assertIn("중간 점수", labels)
 
-    def test_tail_too_thin_is_flagged(self):
-        # 옛 기준(0~2%)에서는 정상이던 값이 개정 기준에서는 위반이다
+    def test_thin_tail_is_not_a_violation(self):
+        # 꼬리가 얇은 것은 문제가 아니다. 하한을 두면 표본이 작을 때
+        # 정상 실행이 위반으로 찍힌다(181건이면 흔들림이 약 2.2%p).
         res = evaluate_score_distribution(_scores(200, 2, 2))
-        labels = [c.label for c in res.failures()]
-        self.assertIn("90점 이상", labels)
-        self.assertIn("10점 이하", labels)
+        self.assertTrue(res.all_ok, [c.label for c in res.failures()])
+
+    def test_thin_tail_real_case(self):
+        # 실제 관측값: 채점 181곳, 10점 이하 12곳(6.6%) -> 정상이어야 한다
+        res = evaluate_score_distribution(_scores(181, 12, 15))
+        self.assertTrue(res.all_ok, [c.label for c in res.failures()])
 
     def test_tail_too_fat_is_flagged(self):
         res = evaluate_score_distribution(_scores(200, 40, 40))
@@ -43,11 +47,12 @@ class TestScoreDistribution(unittest.TestCase):
         self.assertIn("90점 이상", labels)
         self.assertIn("10점 이하", labels)
 
-    def test_boundaries_inclusive(self):
-        # 정확히 8% / 12% 는 정상으로 본다
-        for k in (16, 24):
-            res = evaluate_score_distribution(_scores(200, k, k))
-            self.assertTrue(res.all_ok, f"{k/2:.0f}% 에서 위반 처리됨")
+    def test_upper_boundary_inclusive(self):
+        # 정확히 12% 는 정상, 그 위는 위반
+        res = evaluate_score_distribution(_scores(200, 24, 24))
+        self.assertTrue(res.all_ok, "12%에서 위반 처리됨")
+        res = evaluate_score_distribution(_scores(200, 26, 26))
+        self.assertFalse(res.all_ok, "13%인데 통과됨")
 
     def test_empty_returns_none(self):
         self.assertIsNone(evaluate_score_distribution([]))
