@@ -1,4 +1,6 @@
 import json
+from urllib.parse import quote
+import re
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -6,6 +8,29 @@ from datetime import datetime
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from common.config_loader import Config
+
+def build_naver_link(complex_code, complex_name, region_name=""):
+    """
+    네이버 부동산 링크를 만든다.
+
+    complex_code 가 숫자면 네이버 단지 번호이므로 단지 페이지로 바로 보낸다.
+    숫자가 아니면 국토부 실거래에서 만든 해시(MOLIT_11680_...)이며 네이버에서
+    통하지 않는다. 그 값을 URL 에 붙이면 네이버가 조용히 버리고 기본 지도를
+    띄워, 어느 단지를 눌러도 같은 곳이 열린다. 그래서 검색으로 보낸다.
+    (네이버 단지 번호를 제대로 붙이려면 크롤러 실연동 필요 — 설계서 §9 항목 17~19)
+    """
+    code = str(complex_code or "")
+    if code.isdigit() and code != "0":
+        return f"https://new.land.naver.com/complexes/{code}"
+
+    name = re.sub(r"\([^)]*\)", " ", str(complex_name or ""))
+    name = re.sub(r"[^\w가-힣\s]", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    if not name:
+        return "https://new.land.naver.com/"
+    query = f"{str(region_name or '').strip()} {name}".strip()
+    return "https://new.land.naver.com/search?sk=" + quote(query)
+
 
 def generate_report():
     """
@@ -139,7 +164,7 @@ def generate_report():
             drop_rate_pct = item["drop_rate"] * 100 if item["drop_rate"] < 1.0 else item["drop_rate"]
 
             badge_class = "badge-high" if score >= 80 else ("badge-mid" if score >= 65 else "badge-low")
-            naver_url = f"https://new.land.naver.com/complexes/{complex_code}" if complex_code and complex_code != "0" else "https://new.land.naver.com/"
+            naver_url = build_naver_link(complex_code, name, item["region_name"] if "region_name" in item.keys() else "")
 
             rows_html += f"""
             <tr>
@@ -150,7 +175,7 @@ def generate_report():
                 <td>{drop_rate_pct:.1f}%</td>
                 <td><span class="score-badge {badge_class}">{score:.1f}점</span></td>
                 <td>
-                    <a href="{naver_url}" target="_blank" class="naver-btn">네이버 부동산 →</a>
+                    <a href="{naver_url}" target="_blank" rel="noopener" class="naver-btn">네이버 부동산 →</a>
                 </td>
             </tr>
             """

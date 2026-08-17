@@ -974,6 +974,33 @@
             return 'val-zero';
         }
 
+        // 네이버 부동산 링크
+        //
+        // complex_code 를 URL 에 붙이면 안 된다. 이 값은 국토부 실거래에서 만든
+        // 해시(MOLIT_11680_...)라 네이버에서 통하지 않고, 네이버는 모르는 코드를
+        // 조용히 버린 뒤 기본 지도를 띄운다. 그래서 어느 단지를 눌러도 같은 곳이
+        // 열렸다. 네이버 단지 번호를 제대로 붙이려면 크롤러 실연동이 필요하다
+        // (설계서 §9 항목 17~19).
+        //
+        // 그때까지는 '법정동 + 단지명' 검색으로 보낸다. 단지를 특정하면 해당 단지
+        // 페이지로 이동하고, 못 하면 그 지역 지도가 열린다. 어느 쪽이든 엉뚱한
+        // 기본 지도보다는 낫다.
+        function naverSearchQuery(item) {
+            const name = String(item.complex_name || '')
+                .replace(/\([^)]*\)/g, ' ')   // 괄호 제거: '현대3차(61~64동)' -> '현대3차'
+                .replace(/[^\w가-힣\s]/g, ' ') // 특수문자 제거
+                .replace(/\s+/g, ' ').trim();
+            if (!name) return '';
+            const dong = String(item.region_name || '').trim();
+            return (dong ? dong + ' ' : '') + name;
+        }
+
+        function naverSearchUrl(item) {
+            const q = naverSearchQuery(item);
+            if (!q) return '';
+            return 'https://new.land.naver.com/search?sk=' + encodeURIComponent(q);
+        }
+
         const OPTIONAL_COLUMNS = [
             { key: 'median_price_3m', label: '최근 거래가', group: 'price', num: true },
             { key: 'peak_price', label: '전고점', group: 'price', num: true },
@@ -1108,8 +1135,8 @@
                 }
 
                 tbody.innerHTML = list.map(item => {
-                    const naverUrl = item.naver_link || ('https://new.land.naver.com/complexes/' + (item.complex_code || ''));
-                    const nameLink = naverUrl ? `<a href="${naverUrl}" target="_blank">${item.complex_name}</a>` : item.complex_name;
+                    const naverUrl = item.naver_link || naverSearchUrl(item);
+                    const nameLink = naverUrl ? `<a href="${naverUrl}" target="_blank" rel="noopener">${item.complex_name}</a>` : item.complex_name;
                     const badge = item.is_new_high ? '<span class="badge-new-high">신고가</span>' : '';
                     
                     let rowHtml = `<tr>
