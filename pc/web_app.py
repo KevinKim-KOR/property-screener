@@ -286,6 +286,10 @@ def get_properties():
                     deal_gap = float(deal_gap)
 
                 market_score = ms.get("market_score")
+                # 비교군을 못 만들어 점수를 내지 않은 경우(NO_PEER_GROUP)는
+                # 0점이 아니라 '점수 없음'이다. 0으로 채우면 최하위 매물처럼 보인다.
+                score_missing = (market_score is None
+                                 and str(ms.get("gate_reason") or "") == "NO_PEER_GROUP")
                 if market_score is None:
                     # 폴백: v1점수 또는 0.0
                     market_score = float(row["score_v1"] or 0.0)
@@ -349,7 +353,9 @@ def get_properties():
                     "change_1m": round(float(row["change_1m"] or 0.0), 2),
                     "change_3m": round(float(row["change_3m"] or 0.0), 2),
                     "change_6m": round(float(row["change_6m"] or 0.0), 2),
-                    "market_score": round(market_score, 1),
+                    "market_score": None if score_missing else round(market_score, 1),
+                    "score_missing": score_missing,
+                    "score_missing_reason": "비교군 부족" if score_missing else None,
                     "score_v1": round(score_v1, 1),
                     "strength_sentence": generate_strength_sentence(item_dict),
                     "caution_sentence": generate_caution_sentence(item_dict),
@@ -372,7 +378,10 @@ def get_properties():
                 for (cc, at), ms in ms_map.items():
                     comp = comp_map.get(cc, {})
                     cas = cas_map.get((cc, at), {})
-                    market_score = float(ms.get("market_score") or 0.0)
+                    _ms_raw = ms.get("market_score")
+                    score_missing = (_ms_raw is None
+                                     and str(ms.get("gate_reason") or "") == "NO_PEER_GROUP")
+                    market_score = float(_ms_raw or 0.0)
                     min_a = float(comp.get("area_min_m2") or 0.0)
                     max_a = float(comp.get("area_max_m2") or 0.0)
                     avg_pyeong = round((min_a + max_a) / 2.0 / 3.30578, 1) if max_a > 0 else 32.0
@@ -454,7 +463,9 @@ def get_properties():
                         "change_1m": round(float(cas.get("change_1m") or 0.0) * 100.0, 1),
                         "change_3m": round(float(cas.get("change_3m") or 0.0) * 100.0, 1),
                         "change_6m": round(float(cas.get("change_6m") or 0.0) * 100.0, 1),
-                        "market_score": round(market_score, 1),
+                        "market_score": None if score_missing else round(market_score, 1),
+                        "score_missing": score_missing,
+                        "score_missing_reason": "비교군 부족" if score_missing else None,
                         "score_v1": round(market_score, 1),
                         "strength_sentence": generate_strength_sentence(item_dict),
                         "caution_sentence": generate_caution_sentence(item_dict),

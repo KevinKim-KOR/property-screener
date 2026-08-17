@@ -8,11 +8,14 @@ from typing import Dict, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
-def check_quality_gates(item: Dict, coverage_ratio: float) -> Tuple[str, Optional[str]]:
+def check_quality_gates(item: Dict) -> Tuple[str, Optional[str]]:
     """
-    단지 x 평형 데이터(item)와 가중치 커버리지(coverage_ratio)를 검사하여
-    (gate_status, gate_reason)을 반환한다.
+    단지 x 평형 데이터(item)만 보고 (gate_status, gate_reason)을 반환한다.
     gate_status: 'PASSED' 또는 'EXCLUDED'
+
+    **이 판정에는 비교군이 필요하지 않다.** 게이트가 비교군에 의존하면
+    "게이트 -> 비교군 -> 게이트" 순환이 생긴다. 커버리지 판정은 점수를 낸 뒤
+    check_coverage_gate() 로 따로 수행한다.
     """
     # G5: 단지 매칭 실패
     if not item.get("complex_code"):
@@ -48,10 +51,16 @@ def check_quality_gates(item: Dict, coverage_ratio: float) -> Tuple[str, Optiona
     if ppp <= 1000.0 or ppp > 30000.0:
         return "EXCLUDED", "G4_PRICE_OUTLIER"
 
-    # G6: 커버리지 미달 (< 0.35)
-    if coverage_ratio < 0.35:
-        return "EXCLUDED", "G6_LOW_COVERAGE"
+    return "PASSED", None
 
+
+def check_coverage_gate(coverage_ratio: float, threshold: float = 0.35) -> Tuple[str, Optional[str]]:
+    """
+    커버리지(팩터 확보 비율) 게이트. 블록 점수를 낸 뒤에 판정한다.
+    (설계서 표기로는 G7, 코드에서는 기존 이름 G6_LOW_COVERAGE 를 유지한다.)
+    """
+    if coverage_ratio < threshold:
+        return "EXCLUDED", "G6_LOW_COVERAGE"
     return "PASSED", None
 
 

@@ -10,7 +10,7 @@ from typing import Optional, Dict, List
 from common.database import get_db_connection
 from common.peer_group import select_peer_group
 from .normalizer import normalize_block_a, normalize_block_b, normalize_block_c, normalize_block_d
-from .gate import check_quality_gates
+from .gate import check_quality_gates, check_coverage_gate
 from .aggregator import aggregate_blocks
 from .evidence import build_evidence_json
 
@@ -53,7 +53,9 @@ def run_l1_scoring_v2(base_date: Optional[str] = None) -> Dict:
             at = item["area_type"]
 
             # 비교군 선택 (UMD -> SGG -> BELT)
-            peers, pg_key, pg_n = select_peer_group(item, all_items)
+            # NOTE: v3 가 같은 base_date 의 market_scores 를 지우고 다시 쓰므로
+            #       화면에 실제로 반영되는 것은 v3 결과다. 여기서는 시그니처만 맞춘다.
+            peers, pg_key, pg_n, _pg_level = select_peer_group(item, all_items)
 
             # Block 정규화
             score_a, cov_a, z_a = normalize_block_a(item, peers)
@@ -63,8 +65,10 @@ def run_l1_scoring_v2(base_date: Optional[str] = None) -> Dict:
 
             total_cov = (0.35 * cov_a) + (0.25 * cov_b) + (0.20 * cov_c) + (0.20 * cov_d)
 
-            # 게이트 검사
-            gate_status, gate_reason = check_quality_gates(item, total_cov)
+            # 게이트 검사 (품질 게이트는 비교군과 무관, 커버리지는 별도 판정)
+            gate_status, gate_reason = check_quality_gates(item)
+            if gate_status == "PASSED":
+                gate_status, gate_reason = check_coverage_gate(total_cov)
 
             block_scores = {"A": score_a, "B": score_b, "C": score_c, "D": score_d}
             z_maps = {"A": z_a, "B": z_b, "C": z_c, "D": z_d}
