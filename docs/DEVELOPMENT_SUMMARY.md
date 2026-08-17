@@ -60,6 +60,14 @@ property-screener/
 │   │   └── location_crawler.py          # 카카오맵 로컬 API 기반 지하철역 반경 1.5km 도보 시간 산출
 │   ├── ml_engine/
 │   │   └── scorer.py                    # 100점 만점 5-Factor 부동산 퀀트 투자 모델 (Val/Mom/Loc/Scale/Floor)
+│   ├── features/
+│   │   ├── build_complex_master.py      # 실거래 집계로 단지 마스터 구축 (입지 값 보존·복원)
+│   │   ├── build_stats.py               # 단지x평형 통계
+│   │   ├── region_stats.py              # 지역 중위 통계
+│   │   ├── api_failures.py              # 카카오 API 실패 집계 · 과반 실패 시 중단
+│   │   └── geocode_complexes.py 외 3종  # 좌표 · 역세권 · 학원가 · 학교거리 수집
+│   ├── verification/
+│   │   └── score_distribution.py        # §19.0 점수 분포 판정 (python -m 으로 단독 실행)
 │   ├── viewer/
 │   │   └── generate_report.py           # 정적 HTML 분석 요약 보고서 생성
 │   ├── web_app.py                       # FastAPI/Uvicorn (포트 8585) 기반 스마트 웹 GUI 대시보드 서버
@@ -215,6 +223,20 @@ Windows 배치 파일과 1:1로 대응하는 셸 스크립트를 제공합니다
 ---
 
 ## 5. 변경 이력 및 릴리즈 노트 (Release Notes)
+- **v4.4.0 (2026-08-17)** — 파이프라인 자동화 · 매칭 정합성 · 입지 실측 · 점수 정상화
+  - **파이프라인 프로덕션 연결**: 단지 마스터(`build_complex_master`)와 통계 빌드(`build_stats`/`region_stats`)가 테스트에서만 호출되고 진입점에 없었음. `web_app._run_full_rescore()` 8단계 체인으로 연결(마스터 → 매칭 → 통계 2패스 → v2 → v3 → 괴리율). 빈 DB에서 [최신 자료 가져오기] 한 번으로 화면까지 자동 완주(3분대, 수동 개입 0).
+  - **CSV 적재를 버튼에 연결**: `data/raw/molit/` 최신 폴더의 CSV를 적재 후 API 증분(키 보유 시)까지 수행. API 신규분이 없으면 기준일 마커를 만들지 않아 "오늘 기준" 거짓 표시를 제거.
+  - **단지 매칭 자치구 버그 수정**: `matcher.py` TIER_3만 자치구 확인이 빠져 서울 전역 동명 단지가 한 덩어리로 묶였음. 자치구 검증을 `_candidates_in_sgg()` 하나로 통합. 여러 구가 섞인 단지 111 → 0곳, 적격 463 → 308곳. `verify_matching_integrity()` 자동 검사 추가.
+  - **입지 정보 실측화**: 전 단지 동일 상수(좌표 0·역세권 500m·학교 300m·세대수 300·용적률 250)를 제거하고 카카오 API로 수집. 좌표 1,444 / 역세권 1,431 / 학원가 1,444 / 초·중학교 1,438곳. 마스터 재구축 시 값이 유실되지 않도록 스냅샷·복원 로직 추가.
+  - **점수 계산 정상화**: 비교군에 게이트 제외 단지가 섞여 MAD=0 → 모든 편차가 0이 되던 문제 수정. 게이트는 비교군을 쓰지 않도록 순서 재구성(품질 게이트 → 비교군 → 점수 → 커버리지 게이트). 점수 가짓수 2 → 168, 중앙값 25.7 → 51.0.
+  - **run 단위 검증 V10·V11 신규 구현**(설계서 §11.5.2, 기존 미구현). C14 준수를 위해 검증 통과 후에만 `market_scores` 를 교체.
+  - **§19.0 판정 기준 코드화**: `pc/verification/score_distribution.py` 신설. 꼬리 비율 기준을 Φ 매핑에 맞게 정정(0~2% → 상한 12%만 검사).
+  - **예외 삼킴 정리**: 광범위 삼킴 19건 → 2건. 카카오 API 실패는 집계 후 과반 실패 시 중단(`api_failures.py`).
+  - **데이터 손실 방지**: 적격 0건이거나 직전 대비 50% 이하로 줄면 결과 파일을 덮어쓰지 않고 예외(`save_ml_results`).
+  - **검증 장치 격리**: `tests/conftest.py` 신설. 이전에는 테스트가 실전 DB를 사용해 잔재에 기대어 통과하거나 실전 DB를 오염시켰음.
+  - **생성물 정리**: `report.html`·`ml_results.json` 을 `reports/` 로 이동하고 git 추적 해제. 기동 시 리포트 생성 제거.
+  - **macOS 지원**: `start.sh`/`stop.sh`/`crawl_now.sh` 추가, 하드코딩된 Windows 절대경로 제거, 누락된 `oci/requirements.txt` 추가.
+  - **보류**: 종합 점수(§9 항목 13). 점수 결측 42.9%로 실사용 불가 — `docs/SCORING_RESUME_20260817.md` 참조.
 - **v4.3.1 (2026-08-04)**
   - `web_app.py`, `templates/index.html`: 상세 조건 다중 필터(7개 항목: 초과하락, 전세가율, 거래량비, 거래건수, 학원가, 역세권, 연식) UI 및 필터링 로직 구현.
   - 표 상단 `🔍 조건 N개 적용 · M곳 표시` 요약바 및 `[🔄 조건 초기화]` 버튼, 브라우저 LocalStorage 동기화 지원.
