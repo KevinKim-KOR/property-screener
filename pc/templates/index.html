@@ -339,8 +339,12 @@
             </div>
             <div class="filter-group">
                 <span class="filter-label">금액</span>
-                <input type="range" id="priceSlider" min="0" max="1000000" step="10000" value="1000000" oninput="updatePriceLabel(); applyFilters()">
+                <input type="number" step="any" min="0" id="priceMin" placeholder="최소" oninput="onPriceChange()" style="width: 58px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                <span style="color: #8b95a5; font-size: 12px;">억 ~</span>
+                <input type="number" step="any" min="0" id="priceMax" placeholder="최대" oninput="onPriceChange()" style="width: 58px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 3px 6px; font-size: 12px; text-align: right;">
+                <span style="color: #8b95a5; font-size: 12px;">억</span>
                 <span id="priceLabel" style="color: #fff; font-size: 12px; font-weight: 600;">전체</span>
+                <button class="btn-filter" id="btnPriceReset" onclick="resetPriceFilter()" style="padding: 2px 8px; font-size: 11px;">초기화</button>
             </div>
             <div class="filter-group">
                 <input type="text" class="search-box" id="searchInput" placeholder="단지명 검색..." oninput="applyFilters()">
@@ -442,7 +446,10 @@
         let activeTab = 'active';
         let regionFilter = 'all';
         let pyeongFilter = 'all';
-        let maxPriceFilter = 1000000;
+        // 금액 필터: 만원 단위로 보관한다(화면 입력은 '억').
+        // null 이면 그쪽 끝은 제한 없음.
+        let minPriceFilter = null;
+        let maxPriceFilter = null;
         let currentSort = { key: 'excess_drop_rate', dir: 'desc' };
         let selectedDongs = new Set();
 
@@ -658,6 +665,7 @@
                 updateFooter();
                 renderDongButtons();
                 loadCondFilters();
+                loadPriceFilter();
                 applyFilters();
             } catch(e) {
                 document.getElementById('tableBody').innerHTML =
@@ -716,15 +724,61 @@
             applyFilters();
         }
 
+        // '억' 입력 -> 만원 단위. 빈칸이면 null(제한 없음).
+        function parseEok(id) {
+            const raw = (document.getElementById(id).value || '').trim();
+            if (raw === '') return null;
+            const v = parseFloat(raw);
+            if (!isFinite(v) || v < 0) return null;
+            return Math.round(v * 10000);
+        }
+
         function updatePriceLabel() {
-            const val = parseInt(document.getElementById('priceSlider').value, 10);
             const label = document.getElementById('priceLabel');
-            if (val >= 1000000) {
-                label.textContent = '전체';
+            const fmt = v => (v / 10000).toFixed(1).replace(/\.0$/, '') + '억';
+            if (minPriceFilter === null && maxPriceFilter === null) label.textContent = '전체';
+            else if (minPriceFilter !== null && maxPriceFilter !== null)
+                label.textContent = fmt(minPriceFilter) + ' ~ ' + fmt(maxPriceFilter);
+            else if (maxPriceFilter !== null) label.textContent = fmt(maxPriceFilter) + ' 이하';
+            else label.textContent = fmt(minPriceFilter) + ' 이상';
+        }
+
+        function onPriceChange() {
+            minPriceFilter = parseEok('priceMin');
+            maxPriceFilter = parseEok('priceMax');
+            // 최소 > 최대로 입력하면 아무것도 안 나와 사용자가 이유를 모른다.
+            // 값을 바꾸지 않고 표시로만 알린다.
+            const swapped = (minPriceFilter !== null && maxPriceFilter !== null
+                             && minPriceFilter > maxPriceFilter);
+            const warn = document.getElementById('priceLabel');
+            updatePriceLabel();
+            if (swapped) {
+                warn.textContent = '최소가 최대보다 큽니다';
+                warn.style.color = '#f87171';
             } else {
-                label.textContent = (val / 10000).toFixed(1) + '억 이하';
+                warn.style.color = '#fff';
             }
-            maxPriceFilter = val;
+            localStorage.setItem('screener_price_filter',
+                JSON.stringify({min: document.getElementById('priceMin').value,
+                                max: document.getElementById('priceMax').value}));
+            applyFilters();
+        }
+
+        function resetPriceFilter() {
+            document.getElementById('priceMin').value = '';
+            document.getElementById('priceMax').value = '';
+            onPriceChange();
+        }
+
+        function loadPriceFilter() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('screener_price_filter') || '{}');
+                if (saved.min) document.getElementById('priceMin').value = saved.min;
+                if (saved.max) document.getElementById('priceMax').value = saved.max;
+            } catch (e) { /* 저장값이 깨졌으면 무시하고 빈 필터로 시작 */ }
+            minPriceFilter = parseEok('priceMin');
+            maxPriceFilter = parseEok('priceMax');
+            updatePriceLabel();
         }
 
         function matchPyeongFilter(itemAreaType, filterVal) {
@@ -760,7 +814,10 @@
                 if (pyeongFilter !== 'all' && !matchPyeongFilter(item.area_type, pyeongFilter)) return false;
                 if (query && !(item.complex_name || '').toLowerCase().includes(query)) return false;
                 const priceVal = item.median_price_3m || item.asking_price || 0;
-                if (maxPriceFilter < 1000000 && priceVal > 0 && priceVal > maxPriceFilter) return false;
+                if (priceVal > 0) {
+                    if (minPriceFilter !== null && priceVal < minPriceFilter) return false;
+                    if (maxPriceFilter !== null && priceVal > maxPriceFilter) return false;
+                }
                 if (!matchCondFilters(item)) return false;
                 return true;
             });
