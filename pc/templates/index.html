@@ -276,6 +276,8 @@
             .data-table { font-size: 12px; }
             .data-table td, .data-table thead th { padding: 7px 8px; }
         }
+        td.stale-warn { color: #fbbf24; }
+        td.stale-bad  { color: #f87171; }
     </style>
 </head>
 <body>
@@ -1058,8 +1060,46 @@
             return 'https://new.land.naver.com/search?sk=' + encodeURIComponent(q);
         }
 
+        // 최근거래일: 'YYYY-MM-DD' -> 'YY.MM.DD (N일 전)'
+        function fmtDealDate(v) {
+            if (!v) return '';
+            const s = String(v);
+            const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!m) return s;
+            const days = Math.floor((Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) / 86400000);
+            if (days < 0) return s.slice(2);
+            return s.slice(2) + ' (' + days + '일)';
+        }
+
+        // 오래될수록 눈에 띄게. 거래가 뜸한 단지는 '최근 거래가'의 신뢰도가 낮다.
+        function dealDateClass(v) {
+            if (!v) return '';
+            const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!m) return '';
+            const days = Math.floor((Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) / 86400000);
+            if (days > 180) return 'stale-bad';
+            if (days > 90) return 'stale-warn';
+            return '';
+        }
+
+        // 가격 기준: 최근 거래가가 어느 기간 창의 중위값인지.
+        // 3개월 창에 거래가 3건 미만이면 6개월 -> 12개월로 넓혀 계산한다.
+        // 창이 넓을수록 '최근 시세'라기 어렵고, 하락률도 그만큼 오래된 기준과의 비교다.
+        function fmtPriceWindow(v) {
+            const map = { '3M': '3개월', '6M': '6개월', '12M': '12개월' };
+            return map[String(v || '')] || '';
+        }
+
+        function priceWindowClass(v) {
+            if (v === '12M') return 'stale-bad';
+            if (v === '6M') return 'stale-warn';
+            return '';
+        }
+
         const OPTIONAL_COLUMNS = [
             { key: 'median_price_3m', label: '최근 거래가', group: 'price', num: true },
+            { key: 'price_window', label: '가격 기준', group: 'price', num: false },
+            { key: 'last_deal_date', label: '최근거래일', group: 'price', num: true },
             { key: 'peak_price', label: '전고점', group: 'price', num: true },
             { key: 'peak_date', label: '전고점 시점', group: 'price', num: true },
             { key: 'drop_rate', label: '하락률', group: 'price', num: true },
@@ -1078,7 +1118,7 @@
         ];
 
         const PRESETS = {
-            price: ['median_price_3m', 'peak_price', 'peak_date', 'drop_rate', 'excess_drop_rate', 'jeonse_ratio'],
+            price: ['median_price_3m', 'price_window', 'last_deal_date', 'peak_price', 'peak_date', 'drop_rate', 'excess_drop_rate', 'jeonse_ratio'],
             flow: ['m3', 'm6', 'm12', 'trade_count_12m', 'volume_ratio'],
             complex: ['build_year_str', 'brand', 'subway_str', 'academies_str', 'schools_str'],
             all: OPTIONAL_COLUMNS.map(c => c.key)
@@ -1225,6 +1265,12 @@
                             content = val ? val + '건' : '';
                         } else if (c.key === 'volume_ratio') {
                             content = fmtVol(val);
+                        } else if (c.key === 'last_deal_date') {
+                            content = fmtDealDate(val);
+                            extraClass += dealDateClass(val);
+                        } else if (c.key === 'price_window') {
+                            content = fmtPriceWindow(val);
+                            extraClass += priceWindowClass(val);
                         } else {
                             content = (val == null) ? '' : val;
                         }

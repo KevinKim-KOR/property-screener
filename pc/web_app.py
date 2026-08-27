@@ -342,6 +342,10 @@ def get_properties():
                     "deal_gap_pct": deal_gap,
                     "peak_price": peak_price,
                     "peak_date": str(cas.get("peak_date") or ""),
+                    "last_deal_date": str(cas.get("last_deal_date") or ""),
+                    # 최근 거래가가 어느 기간 창의 중위값인지 (3M/6M/12M). 창이 넓을수록
+                    # "최근 시세"라기 어렵고 하락률도 그만큼 오래된 기준과의 비교가 된다.
+                    "price_window": str(cas.get("price_window") or ""),
                     "drop_rate": round(float(cas.get("drop_rate") or 0.0) * 100.0, 1),
                     "excess_drop_rate": round(excess_drop, 2),
                     "jeonse_ratio": round(float(cas["jeonse_ratio"]) * 100.0, 1) if cas.get("jeonse_ratio") is not None else None,
@@ -450,6 +454,10 @@ def get_properties():
                         "median_price_3m": round(float(cas.get("median_price_3m") or 0.0), 0),
                         "peak_price": round(float(cas.get("peak_price_adj") or 0.0), 0),
                         "peak_date": str(cas.get("peak_date") or ""),
+                        "last_deal_date": str(cas.get("last_deal_date") or ""),
+                        # 최근 거래가가 어느 기간 창의 중위값인지 (3M/6M/12M). 창이 넓을수록
+                        # "최근 시세"라기 어렵고 하락률도 그만큼 오래된 기준과의 비교가 된다.
+                        "price_window": str(cas.get("price_window") or ""),
                         "drop_rate": round(float(cas.get("drop_rate") or 0.0) * 100.0, 1),
                         "excess_drop": round(float(cas.get("excess_drop_rate") or 0.0) * 100.0, 1),
                         "excess_drop_rate": round(float(cas.get("excess_drop_rate") or 0.0) * 100.0, 1),
