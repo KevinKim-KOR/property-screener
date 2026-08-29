@@ -24,10 +24,13 @@ def get_ref_pyeong(at: str) -> float:
     return {"A59": 18.0, "A84": 25.7, "A114": 34.5}.get(at, 25.7)
 
 
-def compute_and_store_region_stats(cas_date: str = "2026-07-31", base_date: Optional[str] = None) -> int:
+def compute_and_store_region_stats(cas_date: Optional[str] = None, base_date: Optional[str] = None) -> int:
     """
     5m2 bucket region stats calculation.
     """
+    # 기본값을 코드에 박아 두면 해가 바뀌어도 그 날짜를 계속 읽는다.
+    if not cas_date:
+        cas_date = datetime.now().strftime("%Y-%m-%d")
     if not base_date:
         base_date = cas_date
 

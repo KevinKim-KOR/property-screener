@@ -30,6 +30,18 @@ class TestScoreDistribution(unittest.TestCase):
         labels = [c.label for c in res.failures()]
         self.assertIn("중간 점수", labels)
 
+    def test_median_tolerance_is_five(self):
+        # (2026-08-28 개정) 허용폭 50±5. 붕괴 검출은 V10 과 꼬리 비율이 담당하며,
+        # 중앙값은 Φ 매핑 특성상 원점수가 치우치면 50 에서 벗어난다.
+        # 옛 허용폭(50±3)은 기간 창을 바로잡은 정상 실행(중앙값 46.6)을 반려했다.
+        for med in (45.0, 46.6, 50.0, 55.0):
+            res = evaluate_score_distribution([med] * 100)
+            self.assertTrue(res.all_ok, f"중앙값 {med} 가 위반 처리됨")
+        for med in (44.9, 55.1):
+            res = evaluate_score_distribution([med] * 100)
+            self.assertIn("중간 점수", [c.label for c in res.failures()],
+                          f"중앙값 {med} 가 통과됨")
+
     def test_thin_tail_is_not_a_violation(self):
         # 꼬리가 얇은 것은 문제가 아니다. 하한을 두면 표본이 작을 때
         # 정상 실행이 위반으로 찍힌다(181건이면 흔들림이 약 2.2%p).

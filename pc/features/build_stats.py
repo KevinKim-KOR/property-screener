@@ -10,6 +10,7 @@ import statistics
 from datetime import datetime
 from typing import Dict, List, Optional
 from common.database import get_db_connection
+from common.date_window import window_start, years_between
 from .peak_detector import detect_robust_peak
 
 def get_ref_pyeong_m2(at: str) -> float:
@@ -20,12 +21,19 @@ def get_ref_pyeong_m2(at: str) -> float:
         return (float(parts[0]) + float(parts[1])) / 2.0
     return {"A59": 59.0, "A84": 84.0, "A114": 114.0}.get(at, 84.0)
 
-def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
+def build_complex_area_stats(base_date: Optional[str] = None) -> int:
     """
     SCORING_V2_DESIGN.md §3 기준 complex_area_stats 테이블 재생성.
     v4.1: 거래 창 조건 (3개월 1건 미만 시 6개월 -> 12개월 -> 제외)
     v4.2: 5㎡ 단위 버킷 (A50_55 ~ A130_135) 계산 적용
     """
+    if not base_date:
+        base_date = datetime.now().strftime("%Y-%m-%d")
+
+    # 기간 창은 전부 base_date 상대로 계산한다. 예전에는 시작일이 고정 문자열이라
+    # 시간이 갈수록 창이 넓어졌다(2026-08-27 기준 '3개월' 창이 실제 3.9개월).
+    w3, w6, w12, w24 = (window_start(base_date, m) for m in (3, 6, 12, 24))
+
     count = 0
     now_str = datetime.now().isoformat()
 
@@ -87,15 +95,10 @@ def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
             trades = [dict(r) for r in cur.fetchall()]
 
             # 24개월/12개월/6개월/3개월 유효 거래 목록 분리 (§3.1, §3.4, v4.2 §11.2)
-            # ⚠️ 기간 창의 시작일이 하드코딩되어 있다. base_date 기준 상대 계산이 아니라
-            #    시간이 갈수록 창이 넓어진다(2026-08-27 기준 3M 창이 실제 3.9개월,
-            #    12M 창이 13.9개월). price_window 컬럼의 '3개월/6개월/12개월' 표기도
-            #    그만큼 실제보다 짧게 말하는 셈이다. 창을 base_date 상대로 바꾸면
-            #    적격 단지 수와 하락률이 모두 달라지므로 별도 판단이 필요하다.
-            trades_24m = [t for t in trades if str(t.get("deal_date", "")) >= "2024-07-01"]
-            trades_12m = [t for t in trades if str(t.get("deal_date", "")) >= "2025-07-01"]
-            trades_6m  = [t for t in trades if str(t.get("deal_date", "")) >= "2026-02-01"]
-            trades_3m  = [t for t in trades if str(t.get("deal_date", "")) >= "2026-05-01"]
+            trades_24m = [t for t in trades if str(t.get("deal_date", "")) >= w24]
+            trades_12m = [t for t in trades if str(t.get("deal_date", "")) >= w12]
+            trades_6m  = [t for t in trades if str(t.get("deal_date", "")) >= w6]
+            trades_3m  = [t for t in trades if str(t.get("deal_date", "")) >= w3]
 
             # 마지막 실거래 계약일. "이 단지가 최근에 실제로 거래됐나"를 보기 위한 값으로,
             # 아래 median_price_3m(기간 중위값)과는 다른 정보다.
@@ -136,8 +139,8 @@ def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
                 SELECT deposit FROM trades_rent
                 WHERE complex_code = ? AND area_type = ? 
                   AND (monthly_rent = 0 OR monthly_rent IS NULL) 
-                  AND deal_date >= '2026-02-01'
-            """, (cc, at))
+                  AND deal_date >= ?
+            """, (cc, at, w6))
             rent_rows = cur.fetchall()
             if len(rent_rows) >= 2 and median_price_3m > 0:
                 jeonse_ratio = statistics.median([r["deposit"] for r in rent_rows]) / median_price_3m
@@ -162,13 +165,14 @@ def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
             supply_pressure = 0.0
 
             households_log = math.log10(max(10, households))
-            age_years = max(0.0, 2026 - build_year)
+            # 연도를 코드에 박으면 해가 바뀌어도 그대로다. base_date 기준으로 센다.
+            age_years = max(0.0, years_between(f"{int(build_year)}-01-01", base_date)) if build_year else 0.0
             far_score = max(0.0, (300.0 - far) / 100.0)
 
             # M3, M6, M12 계산 (각 구간 및 이전 구간 최소 2건 요구)
-            trades_prev_3m  = [t for t in trades if "2026-02-01" <= str(t.get("deal_date", "")) < "2026-05-01"]
-            trades_prev_6m  = [t for t in trades if "2025-08-01" <= str(t.get("deal_date", "")) < "2026-02-01"]
-            trades_prev_12m = [t for t in trades if "2024-07-01" <= str(t.get("deal_date", "")) < "2025-07-01"]
+            trades_prev_3m  = [t for t in trades if w6  <= str(t.get("deal_date", "")) < w3]
+            trades_prev_6m  = [t for t in trades if w12 <= str(t.get("deal_date", "")) < w6]
+            trades_prev_12m = [t for t in trades if w24 <= str(t.get("deal_date", "")) < w12]
 
             m3 = (statistics.median([t["deal_amount"] for t in trades_3m]) / statistics.median([t["deal_amount"] for t in trades_prev_3m]) - 1.0) if (len(trades_3m) >= 2 and len(trades_prev_3m) >= 2) else None
             m6 = (statistics.median([t["deal_amount"] for t in trades_6m]) / statistics.median([t["deal_amount"] for t in trades_prev_6m]) - 1.0) if (len(trades_6m) >= 2 and len(trades_prev_6m) >= 2) else None
@@ -178,8 +182,8 @@ def build_complex_area_stats(base_date: str = "2026-07-31") -> int:
             cur.execute("""
                 SELECT deal_type, is_cancelled
                 FROM trades_sale
-                WHERE complex_code = ? AND area_type = ? AND deal_date >= '2025-07-01'
-            """, (cc, at))
+                WHERE complex_code = ? AND area_type = ? AND deal_date >= ?
+            """, (cc, at, w12))
             all_12m = [dict(r) for r in cur.fetchall()]
             special_count = sum(1 for t in all_12m if t.get("deal_type") == "직거래" or t.get("is_cancelled") == 1)
             special_deal_ratio = (special_count / max(1, len(all_12m))) if all_12m else 0.0

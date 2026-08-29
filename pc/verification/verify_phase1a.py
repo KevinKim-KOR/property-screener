@@ -5,6 +5,7 @@ SCORING_DESIGN_v4.1.md §6.2 개발 담당 자체 점검 및 §8 완료 판정 6
 AI 서술형을 완전히 배제하고, 원문 출력 및 §9 미구현 목록 상태 재출력을 수행함.
 """
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 def run_self_check():
@@ -24,7 +25,7 @@ def run_self_check():
     # 최근 base_date
     cur.execute("SELECT MAX(base_date) FROM market_scores")
     max_dt_row = cur.fetchone()
-    max_dt = max_dt_row[0] if max_dt_row else "2026-07-31"
+    max_dt = (max_dt_row[0] if max_dt_row and max_dt_row[0] else datetime.now().strftime("%Y-%m-%d"))
 
     # 지역별 단지 수 조회
     cur.execute("""
