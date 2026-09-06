@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import statistics
 import yaml
 import sys
 import os
@@ -238,6 +239,52 @@ def _compute_days_ago(ref_date_str: str) -> int:
     return (datetime.now().date() - ref_dt).days
 
 
+# 내 집과 비교할 기준 지역. 이주 검토 대상이라 반포·잠원으로 고정한다.
+# 평형은 내 집과 같은 버킷만 본다(평형 선택 기능은 필요해질 때 붙인다).
+BENCHMARK_REGIONS = ("반포동", "잠원동")
+BENCHMARK_MIN_N = 3   # 이보다 적으면 중위값이 불안정하므로 표시하지 않는다
+
+
+def _benchmark_stats(cur, area_type: str):
+    """
+    반포·잠원의 같은 평형 적격 단지 중위 지표.
+    게이트에서 제외된 단지는 빼고, 표본이 모자라면 None 을 돌려준다
+    (추정치로 채우지 않는다 — C13).
+    """
+    ph = ",".join("?" * len(BENCHMARK_REGIONS))
+    cur.execute(f"""
+        SELECT s.median_price_3m AS mp, s.m12 AS m12
+        FROM complex_area_stats s
+        JOIN complexes c ON s.complex_code = c.complex_code
+        JOIN market_scores m ON m.complex_code = s.complex_code
+                            AND m.area_type = s.area_type
+                            AND m.base_date = s.base_date
+        WHERE s.base_date = (SELECT MAX(base_date) FROM complex_area_stats)
+          AND s.area_type = ?
+          AND c.region_name IN ({ph})
+          AND m.gate_status = 'PASS'
+    """, (area_type, *BENCHMARK_REGIONS))
+    rows = [dict(r) for r in cur.fetchall()]
+    if len(rows) < BENCHMARK_MIN_N:
+        return None
+
+    prices = sorted(r["mp"] for r in rows if r["mp"])
+    m12s = sorted(r["m12"] for r in rows if r["m12"] is not None)
+    out = {
+        "regions": " + ".join(BENCHMARK_REGIONS),
+        "complex_count": len(rows),
+        "median_price": None,
+        "price_count": len(prices),
+        "median_m12": None,
+        "m12_count": len(m12s),
+    }
+    if len(prices) >= BENCHMARK_MIN_N:
+        out["median_price"] = round(statistics.median(prices) / 10000.0, 2)
+    if len(m12s) >= BENCHMARK_MIN_N:
+        out["median_m12"] = round(statistics.median(m12s) * 100.0, 1)
+    return out
+
+
 @app.get("/api/my_property")
 def get_my_property_api():
     """
@@ -269,6 +316,7 @@ def get_my_property_api():
               AND s.base_date = (SELECT MAX(base_date) FROM complex_area_stats)
         """, (mp["sgg_cd"], mp["umd_nm"], mp["apt_name"], mp["area_type"]))
         row = cur.fetchone()
+        bench = _benchmark_stats(cur, mp["area_type"]) if row else None
         conn.close()
     except Exception as e:
         print(f"[WebGUI] my_property read error: {e}")
@@ -302,10 +350,7 @@ def get_my_property_api():
         "m3": pct(cas.get("m3")), "m6": pct(cas.get("m6")), "m12": pct(cas.get("m12")),
         "trade_count_12m": cas.get("trade_count_12m"),
         "sample_count_12m": cas.get("sample_count_12m"),
-        # 국토부는 전용면적만 기록한다. 이 단지 84㎡ 는 A·B·C·D 네 타입이 모두
-        # 84.98㎡ 로 같아 타입을 가릴 수 없다(실측: 84.9x 가 84.98 단일값 63건).
-        "type_merged_warning": (
-            "84㎡ A·B·C·D 타입이 합산된 값입니다. D타입 실제 시세와 다를 수 있습니다."),
+        "benchmark": bench,
     }
 
 

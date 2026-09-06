@@ -295,6 +295,16 @@
         .mp-value.bad  { color: #f87171; }
         .mp-value.up   { color: #f87171; }
         .mp-value.down { color: #60a5fa; }
+        .mp-bench { margin-top: 13px; padding-top: 11px; border-top: 1px solid rgba(59,130,246,0.28); }
+        .mp-bench-title { color: #8b95a5; font-size: 11px; margin-bottom: 7px; letter-spacing: .02em; }
+        .mp-brow { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; flex-wrap: wrap; }
+        .mp-blabel  { color: #8b95a5; font-size: 12px; min-width: 108px; }
+        .mp-bval    { color: #e2e8f0; font-size: 14px; font-weight: 600; min-width: 74px; }
+        .mp-blabel2 { color: #8b95a5; font-size: 12px; min-width: 62px; }
+        .mp-bdiff   { font-size: 14px; font-weight: 700; min-width: 78px; }
+        .mp-bdiff.up   { color: #f87171; }
+        .mp-bdiff.down { color: #60a5fa; }
+        .mp-bnote   { color: #94a3b8; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -428,8 +438,11 @@
                 <span class="mp-toggle" id="mpToggle">▼</span>
             </div>
             <div class="mp-body" id="mpBody">
-                <div class="mp-warn" id="mpWarn"></div>
                 <div class="mp-grid" id="mpGrid"></div>
+                <div class="mp-bench" id="mpBench" style="display:none;">
+                    <div class="mp-bench-title" id="mpBenchTitle"></div>
+                    <div class="mp-bench-rows" id="mpBenchRows"></div>
+                </div>
             </div>
         </div>
 
@@ -1158,9 +1171,6 @@
                 ['영등포구 ' + (d.region_name || ''), d.complex_name || '', areaTxt, dongTxt]
                 .filter(Boolean).join('  ·  ');
 
-            const warnEl = document.getElementById('mpWarn');
-            warnEl.textContent = d.found && d.type_merged_warning ? ('※ ' + d.type_merged_warning) : '';
-
             const grid = document.getElementById('mpGrid');
             if (!d.found) {
                 grid.innerHTML = '<div class="mp-item"><span class="mp-value warn">'
@@ -1190,9 +1200,55 @@
                 grid.innerHTML = items.join('');
             }
 
+            renderBenchmark(d);
+
             const open = localStorage.getItem('screener_mp_open') !== 'false';
             document.getElementById('mpBody').style.display = open ? 'block' : 'none';
             document.getElementById('mpToggle').textContent = open ? '▼' : '▶';
+        }
+
+        // 반포·잠원 대비 격차. 매물 표를 따로 보지 않아도 방향이 보여야 한다.
+        // 표본이 모자란 줄은 통째로 숨긴다(C13). 추정치로 채우지 않는다.
+        function renderBenchmark(d) {
+            const box = document.getElementById('mpBench');
+            const b = d && d.found ? d.benchmark : null;
+            if (!b) { box.style.display = 'none'; return; }
+
+            const rows = [];
+            const row = (label, benchVal, diffLabel, diffVal, note, cls) =>
+                rows.push('<div class="mp-brow">'
+                    + '<span class="mp-blabel">' + label + '</span>'
+                    + '<span class="mp-bval">' + benchVal + '</span>'
+                    + '<span class="mp-blabel2">' + diffLabel + '</span>'
+                    + '<span class="mp-bdiff ' + (cls || '') + '">' + diffVal + '</span>'
+                    + '<span class="mp-bnote">' + (note || '') + '</span>'
+                    + '</div>');
+
+            // 가격 차이
+            if (b.median_price != null && d.median_price_3m != null) {
+                const diff = d.median_price_3m - b.median_price;
+                const pct = b.median_price ? Math.abs(diff) / b.median_price * 100 : null;
+                const note = pct == null ? ''
+                    : '(내 집이 ' + pct.toFixed(0) + '% ' + (diff < 0 ? '낮음' : '높음') + ')';
+                row('반포·잠원 중위', b.median_price.toFixed(2) + '억', '가격 차이',
+                    (diff >= 0 ? '+' : '') + diff.toFixed(2) + '억', note, diff < 0 ? 'down' : 'up');
+            }
+
+            // 흐름 차이 (M12)
+            if (b.median_m12 != null && d.m12 != null) {
+                const gap = d.m12 - b.median_m12;
+                const note = gap > 0 ? '(내 집이 더 올랐음 · 격차 좁혀지는 중)'
+                          : (gap < 0 ? '(반포가 더 올랐음 · 격차 벌어지는 중)' : '(차이 없음)');
+                row('반포·잠원 M12', (b.median_m12 > 0 ? '+' : '') + b.median_m12.toFixed(1) + '%',
+                    '흐름 차이', (gap >= 0 ? '+' : '') + gap.toFixed(1) + '%p', note,
+                    gap > 0 ? 'up' : (gap < 0 ? 'down' : ''));
+            }
+
+            if (!rows.length) { box.style.display = 'none'; return; }
+            document.getElementById('mpBenchTitle').textContent =
+                '반포·잠원 34평 대비  ·  ' + b.complex_count + '곳 기준';
+            document.getElementById('mpBenchRows').innerHTML = rows.join('');
+            box.style.display = 'block';
         }
 
         const OPTIONAL_COLUMNS = [
