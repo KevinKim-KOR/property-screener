@@ -240,49 +240,76 @@ def _compute_days_ago(ref_date_str: str) -> int:
 
 
 # 내 집과 비교할 기준 지역. 이주 검토 대상이라 반포·잠원으로 고정한다.
-# 평형은 내 집과 같은 버킷만 본다(평형 선택 기능은 필요해질 때 붙인다).
 BENCHMARK_REGIONS = ("반포동", "잠원동")
 BENCHMARK_MIN_N = 3   # 이보다 적으면 중위값이 불안정하므로 표시하지 않는다
 
+# 평형대 구분은 화면 필터(matchPyeongFilter)와 같은 기준을 쓴다.
+# area_type 앞 숫자(전용 ㎡) 기준: 25평형대 < 70, 30평형대 70~99.
+BENCHMARK_PYEONG_GROUPS = (
+    {"key": "py25", "label": "25평형대", "min_m2": 0, "max_m2": 70},
+    {"key": "py30", "label": "30평형대", "min_m2": 70, "max_m2": 100},
+)
 
-def _benchmark_stats(cur, area_type: str):
+
+def _area_type_m2(area_type: str):
+    """area_type('A80_85', 'A84', 'A135P') 에서 앞 숫자(전용 ㎡)를 뽑는다."""
+    s = str(area_type or "")
+    if not s.startswith("A"):
+        return None
+    num = ""
+    for ch in s[1:]:
+        if ch.isdigit():
+            num += ch
+        else:
+            break
+    return int(num) if num else None
+
+
+def _benchmark_stats(cur, _unused_area_type=None):
     """
-    반포·잠원의 같은 평형 적격 단지 중위 지표.
-    게이트에서 제외된 단지는 빼고, 표본이 모자라면 None 을 돌려준다
+    반포·잠원의 평형대별 중위 지표.
+    게이트에서 제외된 단지는 빼고, 표본이 모자란 그룹은 결과에서 뺀다
     (추정치로 채우지 않는다 — C13).
     """
     ph = ",".join("?" * len(BENCHMARK_REGIONS))
     cur.execute(f"""
-        SELECT s.median_price_3m AS mp, s.m12 AS m12
+        SELECT s.area_type AS at, s.median_price_3m AS mp, s.m12 AS m12
         FROM complex_area_stats s
         JOIN complexes c ON s.complex_code = c.complex_code
         JOIN market_scores m ON m.complex_code = s.complex_code
                             AND m.area_type = s.area_type
                             AND m.base_date = s.base_date
         WHERE s.base_date = (SELECT MAX(base_date) FROM complex_area_stats)
-          AND s.area_type = ?
           AND c.region_name IN ({ph})
           AND m.gate_status = 'PASS'
-    """, (area_type, *BENCHMARK_REGIONS))
+    """, BENCHMARK_REGIONS)
     rows = [dict(r) for r in cur.fetchall()]
-    if len(rows) < BENCHMARK_MIN_N:
-        return None
 
-    prices = sorted(r["mp"] for r in rows if r["mp"])
-    m12s = sorted(r["m12"] for r in rows if r["m12"] is not None)
-    out = {
-        "regions": " + ".join(BENCHMARK_REGIONS),
-        "complex_count": len(rows),
-        "median_price": None,
-        "price_count": len(prices),
-        "median_m12": None,
-        "m12_count": len(m12s),
-    }
-    if len(prices) >= BENCHMARK_MIN_N:
-        out["median_price"] = round(statistics.median(prices) / 10000.0, 2)
-    if len(m12s) >= BENCHMARK_MIN_N:
-        out["median_m12"] = round(statistics.median(m12s) * 100.0, 1)
-    return out
+    groups = []
+    for g in BENCHMARK_PYEONG_GROUPS:
+        sub = []
+        for r in rows:
+            m2 = _area_type_m2(r["at"])
+            if m2 is not None and g["min_m2"] <= m2 < g["max_m2"]:
+                sub.append(r)
+        if len(sub) < BENCHMARK_MIN_N:
+            continue   # 표본 부족 -> 이 그룹은 표시하지 않는다
+
+        prices = sorted(r["mp"] for r in sub if r["mp"])
+        m12s = sorted(r["m12"] for r in sub if r["m12"] is not None)
+        groups.append({
+            "key": g["key"],
+            "label": g["label"],
+            "complex_count": len(sub),
+            "median_price": round(statistics.median(prices) / 10000.0, 2)
+                            if len(prices) >= BENCHMARK_MIN_N else None,
+            "median_m12": round(statistics.median(m12s) * 100.0, 1)
+                          if len(m12s) >= BENCHMARK_MIN_N else None,
+        })
+
+    if not groups:
+        return None
+    return {"regions": " + ".join(BENCHMARK_REGIONS), "groups": groups}
 
 
 @app.get("/api/my_property")
@@ -316,7 +343,7 @@ def get_my_property_api():
               AND s.base_date = (SELECT MAX(base_date) FROM complex_area_stats)
         """, (mp["sgg_cd"], mp["umd_nm"], mp["apt_name"], mp["area_type"]))
         row = cur.fetchone()
-        bench = _benchmark_stats(cur, mp["area_type"]) if row else None
+        bench = _benchmark_stats(cur) if row else None
         conn.close()
     except Exception as e:
         print(f"[WebGUI] my_property read error: {e}")
