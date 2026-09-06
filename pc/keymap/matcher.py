@@ -8,6 +8,7 @@ import re
 import difflib
 from typing import Optional, Tuple, Dict, List
 from common.database import get_db_connection
+from common.my_property import is_in_universe, is_my_property
 
 def normalize_apt_name(name: str) -> str:
     """
@@ -162,6 +163,14 @@ def run_complex_matching() -> Dict[str, int]:
         rows = cur.fetchall()
 
         for r in rows:
+            # 유니버스(서초·강남) 밖 거래는 내 집 단지와 정확히 일치할 때만 매칭한다.
+            # 그러지 않으면 같은 자치구의 다른 단지가 퍼지 매칭으로 내 집에 붙는다.
+            # (영등포구 251개 단지 전수 검사에서 임계 0.85 이상은 0건이었으나,
+            #  자료가 늘면 달라질 수 있으므로 구조로 막는다)
+            if not is_in_universe(r["sgg_cd"]) and not is_my_property(
+                    r["sgg_cd"], r["umd_nm"], r["apt_name_raw"]):
+                continue
+
             stats["total"] += 1
             code, conf, method = matcher.match(
                 r["sgg_cd"], r["umd_nm"], r["bonbun"], r["bubun"],

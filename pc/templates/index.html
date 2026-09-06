@@ -278,6 +278,23 @@
         }
         td.stale-warn { color: #fbbf24; }
         td.stale-bad  { color: #f87171; }
+        .my-property-box { background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.35);
+            border-radius: 10px; margin: 0 0 14px 0; overflow: hidden; }
+        .mp-head { display: flex; align-items: center; gap: 10px; padding: 11px 16px; cursor: pointer;
+            background: rgba(59,130,246,0.10); }
+        .mp-title { font-weight: 700; color: #fff; font-size: 14px; }
+        .mp-sub { color: #cbd5e1; font-size: 13px; flex: 1; }
+        .mp-toggle { color: #8b95a5; font-size: 12px; }
+        .mp-body { padding: 12px 16px 14px; }
+        .mp-warn { color: #fbbf24; font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+        .mp-grid { display: flex; flex-wrap: wrap; gap: 10px 26px; }
+        .mp-item { min-width: 108px; }
+        .mp-label { display: block; color: #8b95a5; font-size: 11px; margin-bottom: 2px; }
+        .mp-value { color: #fff; font-size: 14px; font-weight: 600; }
+        .mp-value.warn { color: #fbbf24; }
+        .mp-value.bad  { color: #f87171; }
+        .mp-value.up   { color: #f87171; }
+        .mp-value.down { color: #60a5fa; }
     </style>
 </head>
 <body>
@@ -402,6 +419,20 @@
         </div>
 
         <!-- Column Toggle & Preset Bar -->
+        <!-- 보유 주택. 매물 랭킹과 섞지 않고 별도 영역으로 고정한다.
+             초과하락률은 표시하지 않는다(유니버스 밖이라 비교군이 다르다). -->
+        <div class="my-property-box" id="myPropertyBox" style="display:none;">
+            <div class="mp-head" onclick="toggleMyProperty()">
+                <span class="mp-title">🏠 내 집</span>
+                <span class="mp-sub" id="mpSub"></span>
+                <span class="mp-toggle" id="mpToggle">▼</span>
+            </div>
+            <div class="mp-body" id="mpBody">
+                <div class="mp-warn" id="mpWarn"></div>
+                <div class="mp-grid" id="mpGrid"></div>
+            </div>
+        </div>
+
         <div class="column-preset-bar" id="columnPresetBar">
             <div class="preset-buttons">
                 <span class="preset-label">컬럼 프리셋:</span>
@@ -669,6 +700,7 @@
                 loadCondFilters();
                 loadPriceFilter();
                 applyFilters();
+                loadMyProperty();
             } catch(e) {
                 document.getElementById('tableBody').innerHTML =
                     '<tr><td colspan="10" class="empty-msg">데이터를 불러올 수 없습니다.</td></tr>';
@@ -1094,6 +1126,73 @@
             if (v === '12M') return 'stale-bad';
             if (v === '6M') return 'stale-warn';
             return '';
+        }
+
+        // ── 보유 주택 ───────────────────────────────────────────
+        // 매물 표와 같은 색상 규칙을 쓴다(가격 기준·최근거래일).
+        // 값이 없는 줄은 통째로 숨긴다(C13). 대체 문구나 0 으로 채우지 않는다.
+        function toggleMyProperty() {
+            const body = document.getElementById('mpBody');
+            const open = body.style.display !== 'none';
+            body.style.display = open ? 'none' : 'block';
+            document.getElementById('mpToggle').textContent = open ? '▶' : '▼';
+            localStorage.setItem('screener_mp_open', open ? 'false' : 'true');
+        }
+
+        async function loadMyProperty() {
+            let d;
+            try {
+                const res = await fetch('/api/my_property');
+                d = await res.json();
+            } catch (e) { return; }
+            if (!d || !d.configured) return;
+
+            const box = document.getElementById('myPropertyBox');
+            box.style.display = 'block';
+
+            const cfg = d.config || {};
+            const areaTxt = cfg.exclusive_area ? ('34평 / ' + cfg.exclusive_area + '㎡') : '';
+            const dongTxt = [cfg.dong ? cfg.dong + '동' : '', cfg.floor ? cfg.floor + '층' : '',
+                             cfg.type_label ? cfg.type_label + '타입' : ''].filter(Boolean).join(' ');
+            document.getElementById('mpSub').textContent =
+                ['영등포구 ' + (d.region_name || ''), d.complex_name || '', areaTxt, dongTxt]
+                .filter(Boolean).join('  ·  ');
+
+            const warnEl = document.getElementById('mpWarn');
+            warnEl.textContent = d.found && d.type_merged_warning ? ('※ ' + d.type_merged_warning) : '';
+
+            const grid = document.getElementById('mpGrid');
+            if (!d.found) {
+                grid.innerHTML = '<div class="mp-item"><span class="mp-value warn">'
+                    + '실거래 자료에서 이 단지를 찾지 못했습니다.</span></div>';
+            } else {
+                const items = [];
+                const push = (label, value, cls) => {
+                    if (value === null || value === undefined || value === '') return;  // C13
+                    items.push('<div class="mp-item"><span class="mp-label">' + label
+                        + '</span><span class="mp-value ' + (cls || '') + '">' + value + '</span></div>');
+                };
+                push('최근 거래가', d.median_price_3m != null ? d.median_price_3m.toFixed(2) + '억' : null);
+                push('가격 기준', fmtPriceWindow(d.price_window),
+                     (priceWindowClass(d.price_window) || '').replace('stale-', ''));
+                push('최근거래일', fmtDealDate(d.last_deal_date),
+                     (dealDateClass(d.last_deal_date) || '').replace('stale-', ''));
+                push('전고점', d.peak_price != null
+                    ? d.peak_price.toFixed(2) + '억' + (d.peak_date ? ' (' + d.peak_date + ')' : '') : null);
+                push('하락률', d.drop_rate != null ? '-' + d.drop_rate.toFixed(1) + '%' : null);
+                push('전세가율', d.jeonse_ratio != null ? d.jeonse_ratio.toFixed(1) + '%' : null);
+                ['m3', 'm6', 'm12'].forEach(k => {
+                    const v = d[k];
+                    if (v == null) return;
+                    push(k.toUpperCase(), (v > 0 ? '+' : '') + v.toFixed(1) + '%', v > 0 ? 'up' : (v < 0 ? 'down' : ''));
+                });
+                push('거래 건수', d.trade_count_12m != null ? d.trade_count_12m + '건' : null);
+                grid.innerHTML = items.join('');
+            }
+
+            const open = localStorage.getItem('screener_mp_open') !== 'false';
+            document.getElementById('mpBody').style.display = open ? 'block' : 'none';
+            document.getElementById('mpToggle').textContent = open ? '▼' : '▶';
         }
 
         const OPTIONAL_COLUMNS = [

@@ -7,6 +7,7 @@
 import hashlib
 from datetime import datetime
 from common.database import get_db_connection
+from common.my_property import get_my_property, allowed_sgg_codes, is_my_property
 
 def extract_brand(name: str) -> str:
     if not name:
@@ -35,6 +36,11 @@ def build_complex_master_from_molit() -> int:
     now_str = datetime.now().isoformat()
     count = 0
 
+    # 내 집 한 채 예외. 설정이 없으면 매칭되지 않는 값을 넣어 유니버스만 남긴다.
+    _mp = get_my_property()
+    _mp_params = ((_mp["sgg_cd"], _mp["umd_nm"], _mp["apt_name"]) if _mp
+                  else ("__NONE__", "__NONE__", "__NONE__"))
+
     with get_db_connection() as conn:
         cur = conn.cursor()
 
@@ -51,11 +57,21 @@ def build_complex_master_from_molit() -> int:
                 MAX(exclusive_area) AS max_area,
                 COUNT(*) AS trade_cnt
             FROM trades_sale
-            WHERE sgg_cd IN ('11650', '11680') AND apt_name_raw IS NOT NULL
+            WHERE (sgg_cd IN ('11650', '11680')
+                   OR (sgg_cd = ? AND umd_nm = ? AND apt_name_raw = ?))
+              AND apt_name_raw IS NOT NULL
             GROUP BY sgg_cd, umd_nm, bonbun, bubun, apt_name_raw, build_year
-        """)
+        """, _mp_params)
         groups = [dict(r) for r in cur.fetchall()]
-        assert all(str(g["sgg_cd"]) in ("11650", "11680") for g in groups), "C8 위반: 서초구/강남구 외 다른 시군구 데이터가 적재되었습니다!"
+        # C8: 유니버스는 서초·강남. 내 집(config my_property) 한 채만 예외로 허용한다.
+        _allowed = allowed_sgg_codes()
+        _bad = [g for g in groups
+                if str(g["sgg_cd"]) not in _allowed
+                or (str(g["sgg_cd"]) not in ("11650", "11680")
+                    and not is_my_property(g["sgg_cd"], g.get("umd_nm"), g.get("apt_name_raw")))]
+        assert not _bad, (
+            "C8 위반: 유니버스(서초·강남) 밖 단지가 적재되었습니다: "
+            + ", ".join(f"{b['sgg_cd']}/{b.get('umd_nm')}/{b.get('apt_name_raw')}" for b in _bad[:5]))
 
         # 2. 기존 단지의 '외부에서 채운 값'을 보존한다.
         #    complexes 는 아래에서 통째로 지우고 다시 만드는데, 카카오 API 로 채운

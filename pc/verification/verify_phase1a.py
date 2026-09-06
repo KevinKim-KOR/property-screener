@@ -19,8 +19,10 @@ def run_self_check():
     # 0. [C8 강제 검증 - D1] 서초구(11650), 강남구(11680) 외 다른 sgg_cd가 단지 마스터에 있는지 Assert
     cur.execute("SELECT DISTINCT sgg_cd FROM complexes")
     sgg_cds = [str(r["sgg_cd"]) for r in cur.fetchall()]
-    invalid_sgg = [cd for cd in sgg_cds if cd not in ("11650", "11680")]
-    assert len(invalid_sgg) == 0, f"C8 위반 (Assert Failed): 서초/강남 외 sgg_cd가 단지 마스터에 존재합니다: {invalid_sgg}"
+    # 내 집(config my_property) 한 채는 허용 목록으로 예외 처리한다.
+    from common.my_property import allowed_sgg_codes
+    invalid_sgg = [cd for cd in sgg_cds if cd not in allowed_sgg_codes()]
+    assert len(invalid_sgg) == 0, f"C8 위반 (Assert Failed): 허용 목록 외 sgg_cd가 단지 마스터에 존재합니다: {invalid_sgg}"
     
     # 최근 base_date
     cur.execute("SELECT MAX(base_date) FROM market_scores")

@@ -164,6 +164,12 @@ def _run_full_rescore(base_date: str = None):
     gap_cnt = update_all_properties_l2(base_date)
     print(f"[Rescore] 매물 괴리율 산출 {gap_cnt:,}건")
 
+    # 9. 유니버스 오염 검사. 내 집(유니버스 밖 한 채)이 강남권 통계·비교군·
+    #    점수에 섞이면 예외를 던진다.
+    from common.my_property import verify_no_foreign_sgg
+    verify_no_foreign_sgg(base_date)
+    print("[Rescore] 유니버스 오염 검사 통과")
+
 def get_data_reference_date():
     """data/raw/molit/ 폴더 내 매매 CSV 또는 API 갱신 마커가 있는 가장 최신 날짜 폴더명을 반환합니다."""
     base_dir = os.path.join(str(root_dir), "data", "raw", "molit")
@@ -230,6 +236,77 @@ def _compute_days_ago(ref_date_str: str) -> int:
     except (ValueError, TypeError) as e:
         raise ValueError(f"기준일 형식이 올바르지 않습니다: {ref_date_str!r} ({e})") from e
     return (datetime.now().date() - ref_dt).days
+
+
+@app.get("/api/my_property")
+def get_my_property_api():
+    """
+    보유 주택(내 집) 지표. 매물 랭킹과 섞지 않고 화면 상단에 따로 표시한다.
+
+    초과하락률은 내려보내지 않는다 — 지역 중위 하락률 대비 값인데 내 집은
+    유니버스(서초·강남) 밖이라 비교 기준 자체가 다르다.
+    동·층은 표시용이며 계산에 쓰지 않는다(층·향 보정은 설계서 §9 항목 20 미구현).
+    """
+    from common.my_property import get_my_property
+
+    mp = get_my_property()
+    if not mp:
+        return {"configured": False}
+
+    db_path = Path(Config.get_db_path())
+    if not db_path.exists():
+        return {"configured": True, "found": False, "config": mp}
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.* FROM complex_area_stats s
+            JOIN complexes c ON s.complex_code = c.complex_code
+            WHERE c.sgg_cd = ? AND c.region_name = ? AND c.complex_name = ?
+              AND s.area_type = ?
+              AND s.base_date = (SELECT MAX(base_date) FROM complex_area_stats)
+        """, (mp["sgg_cd"], mp["umd_nm"], mp["apt_name"], mp["area_type"]))
+        row = cur.fetchone()
+        conn.close()
+    except Exception as e:
+        print(f"[WebGUI] my_property read error: {e}")
+        raise HTTPException(status_code=500, detail=f"보유 주택 지표를 읽지 못했습니다: {e}")
+
+    if not row:
+        return {"configured": True, "found": False, "config": mp}
+
+    cas = dict(row)
+    pct = lambda v: round(float(v) * 100.0, 1) if v is not None else None
+    eok = lambda v: round(float(v) / 10000.0, 2) if v else None
+
+    return {
+        "configured": True,
+        "found": True,
+        "config": mp,
+        "region_name": mp["umd_nm"],
+        "complex_name": mp["apt_name"],
+        "area_type": mp["area_type"],
+        "exclusive_area": mp.get("exclusive_area"),
+        "dong": mp.get("dong"),
+        "floor": mp.get("floor"),
+        "type_label": mp.get("type_label"),
+        "median_price_3m": eok(cas.get("median_price_3m")),
+        "price_window": str(cas.get("price_window") or ""),
+        "last_deal_date": str(cas.get("last_deal_date") or ""),
+        "peak_price": eok(cas.get("peak_price_adj")),
+        "peak_date": str(cas.get("peak_date") or ""),
+        "drop_rate": pct(cas.get("drop_rate")),
+        "jeonse_ratio": pct(cas.get("jeonse_ratio")),
+        "m3": pct(cas.get("m3")), "m6": pct(cas.get("m6")), "m12": pct(cas.get("m12")),
+        "trade_count_12m": cas.get("trade_count_12m"),
+        "sample_count_12m": cas.get("sample_count_12m"),
+        # 국토부는 전용면적만 기록한다. 이 단지 84㎡ 는 A·B·C·D 네 타입이 모두
+        # 84.98㎡ 로 같아 타입을 가릴 수 없다(실측: 84.9x 가 84.98 단일값 63건).
+        "type_merged_warning": (
+            "84㎡ A·B·C·D 타입이 합산된 값입니다. D타입 실제 시세와 다를 수 있습니다."),
+    }
 
 
 @app.get("/api/properties")

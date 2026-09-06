@@ -16,6 +16,7 @@ from collections import defaultdict
 
 from common.database import get_db_connection
 from common.peer_group import select_peer_group
+from common.my_property import exclude_my_property
 from .normalizer import normalize_block_a, normalize_block_b, normalize_block_c, normalize_block_d
 from .gate import check_quality_gates, check_coverage_gate
 from .aggregator import aggregate_blocks
@@ -171,6 +172,9 @@ def run_scoring(base_date: Optional[str] = None, config_path: str = "config/scor
             WHERE s.base_date = ?
         """, (base_date,))
         all_items = [dict(r) for r in cur.fetchall()]
+        # 내 집(유니버스 밖)은 게이트·비교군·점수·V10/V11 어디에도 들어가지 않는다.
+        # 통계(complex_area_stats)에는 있지만 강남권 매물 랭킹과 섞으면 안 된다.
+        all_items = exclude_my_property(all_items)
         total_count = len(all_items)
 
         min_n = cfg.get("universe", {}).get("min_peer_n", 10)

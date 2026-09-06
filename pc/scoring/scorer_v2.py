@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, Dict, List
 from common.database import get_db_connection
 from common.peer_group import select_peer_group
+from common.my_property import exclude_my_property
 from .normalizer import normalize_block_a, normalize_block_b, normalize_block_c, normalize_block_d
 from .gate import check_quality_gates, check_coverage_gate
 from .aggregator import aggregate_blocks
@@ -45,6 +46,7 @@ def run_l1_scoring_v2(base_date: Optional[str] = None) -> Dict:
             WHERE s.base_date = ?
         """, (base_date,))
         all_items = [dict(r) for r in cur.fetchall()]
+        all_items = exclude_my_property(all_items)  # 내 집은 강남권 점수 유니버스에서 제외
 
         stats["universe_total"] = len(all_items)
 

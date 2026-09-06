@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from common.database import get_db_connection
 from common.date_window import window_start, years_between
+from common.my_property import allowed_sgg_codes, is_in_universe
 from .peak_detector import detect_robust_peak
 
 def get_ref_pyeong_m2(at: str) -> float:
@@ -33,6 +34,10 @@ def build_complex_area_stats(base_date: Optional[str] = None) -> int:
     # 기간 창은 전부 base_date 상대로 계산한다. 예전에는 시작일이 고정 문자열이라
     # 시간이 갈수록 창이 넓어졌다(2026-08-27 기준 '3개월' 창이 실제 3.9개월).
     w3, w6, w12, w24 = (window_start(base_date, m) for m in (3, 6, 12, 24))
+
+    # 단지x평형 통계는 내 집도 낸다(최근가·전고점·M3/M6/M12·전세가율이 여기서 나온다).
+    # 다만 지역 중위값·비교군·게이트·점수에는 들어가지 않는다.
+    _allowed = tuple(allowed_sgg_codes())
 
     count = 0
     now_str = datetime.now().isoformat()
@@ -67,8 +72,8 @@ def build_complex_area_stats(base_date: Optional[str] = None) -> int:
             SELECT DISTINCT t.complex_code, t.area_type 
             FROM trades_sale t
             JOIN complexes c ON t.complex_code = c.complex_code
-            WHERE c.sgg_cd IN ('11650', '11680') AND t.area_type IS NOT NULL AND t.area_type LIKE 'A%'
-        """)
+            WHERE c.sgg_cd IN ({sgg_ph}) AND t.area_type IS NOT NULL AND t.area_type LIKE 'A%'
+        """.format(sgg_ph=",".join("?" * len(_allowed))), _allowed)
         target_pairs = cur.fetchall()
 
         for tp in target_pairs:
@@ -79,7 +84,7 @@ def build_complex_area_stats(base_date: Optional[str] = None) -> int:
             cur.execute("SELECT sgg_cd, build_year, total_households, floor_area_ratio FROM complexes WHERE complex_code = ?", (cc,))
             c_row = cur.fetchone()
             sgg_cd = c_row["sgg_cd"] if c_row else "11650"
-            assert str(sgg_cd) in ("11650", "11680"), f"C8 위반: sgg_cd {sgg_cd} 가 감지되었습니다."
+            assert str(sgg_cd) in _allowed, f"C8 위반: sgg_cd {sgg_cd} 가 감지되었습니다."
             build_year = c_row["build_year"] if c_row and c_row["build_year"] else 2005
             households = c_row["total_households"] if c_row and c_row["total_households"] else 300
             far = c_row["floor_area_ratio"] if c_row and c_row["floor_area_ratio"] else 250.0
@@ -131,8 +136,12 @@ def build_complex_area_stats(base_date: Optional[str] = None) -> int:
                     drop_rate = (peak_adj - median_price_3m) / float(peak_adj)
             else:
                 drop_rate = 0.0
-            reg_median_drop = reg_drop_map.get((sgg_cd, at), 0.05)
-            excess_drop_rate = drop_rate - reg_median_drop
+            # 초과하락률은 '지역 중위 하락률 대비'다. 지역 통계가 없으면 계산할 수 없다.
+            # 예전에는 기본값 0.05 로 채웠는데, 그러면 근거 없는 값이 DB 에 남아
+            # 나중에 그대로 쓰인다. 없으면 없는 대로 둔다(C13).
+            # 내 집(유니버스 밖)은 지역 통계 자체가 없으므로 항상 NULL 이 된다.
+            reg_median_drop = reg_drop_map.get((sgg_cd, at))
+            excess_drop_rate = (drop_rate - reg_median_drop) if reg_median_drop is not None else None
 
             # 전세가율 계산 (최근 6개월, 순수 전세, 동일 단지 및 5㎡ 버킷, 최소 2건 요구)
             cur.execute("""
