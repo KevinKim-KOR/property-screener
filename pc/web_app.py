@@ -204,24 +204,49 @@ def open_db(db_path):
     raise DataBusyError(str(last))
 
 
-def get_data_reference_date():
-    """data/raw/molit/ 폴더 내 매매 CSV 또는 API 갱신 마커가 있는 가장 최신 날짜 폴더명을 반환합니다."""
-    base_dir = os.path.join(str(root_dir), "data", "raw", "molit")
-    if not os.path.exists(base_dir):
+# 자료 기준일을 읽어올 표. 매매·전월세 중 늦은 계약일이 곧 기준일이다.
+DATA_REF_TABLES = ("trades_sale", "trades_rent")
+
+
+def get_data_reference_date(conn=None):
+    """
+    실거래 자료 기준일 = DB 가 보유한 가장 늦은 계약일(매매·전월세 중 늦은 쪽).
+
+    예전에는 data/raw/molit/ 아래 날짜 폴더 이름과 _api_refresh.txt 마커로
+    이 날짜를 추론했다. 그 방식은 마커 생성 조건이 바뀌자 곧바로 어긋났다 —
+    API 신규분이 0건이면 마커를 만들지 않게 되어, 자료는 최신인데 배너는
+    11일 전 날짜에 멈춰 있었다(2026-09-07).
+    자료의 날짜는 자료 자신에게 물어야 한다. → SCORING_DESIGN_v4.3.md D16
+
+    conn 을 넘기면 그 커넥션을 쓰고 닫지 않는다(호출부가 이미 열어둔 경우).
+    """
+    own_conn = conn is None
+    if own_conn:
+        db_path = Path(Config.get_db_path())
+        if not db_path.exists():
+            return None
+        conn = open_db(db_path)
+    try:
+        existing = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        dates = []
+        for table in DATA_REF_TABLES:
+            # 표가 없으면 아직 적재 전이다. 없는 표를 조회하면 OperationalError 가
+            # 나는데, 그걸 잡아 삼키면 '적재 전'과 '조회 실패'가 구분되지 않는다.
+            if table not in existing:
+                continue
+            row = conn.execute(f"SELECT MAX(deal_date) FROM {table}").fetchone()
+            if row and row[0]:
+                dates.append(str(row[0]))
+    finally:
+        if own_conn:
+            conn.close()
+    if not dates:
         return None
-    folders = []
-    for name in os.listdir(base_dir):
-        p = os.path.join(base_dir, name)
-        if os.path.isdir(p):
-            children = os.listdir(p)
-            has_csv = any(f.endswith(".csv") and "매매" in f for f in children)
-            has_marker = "_api_refresh.txt" in children
-            if has_csv or has_marker:
-                folders.append(name)
-    if not folders:
-        return None
-    folders.sort(reverse=True)
-    return folders[0]
+    return max(dates)
 
 class RegionItem(BaseModel):
     name: str
@@ -626,6 +651,7 @@ def get_properties():
     db_path = Path(Config.get_db_path())
     properties = []
     excluded_properties = []
+    ref_date_str = None
     if db_path.exists():
         try:
             conn = open_db(db_path)
@@ -876,6 +902,10 @@ def get_properties():
                     else:
                         properties.append(prop_data)
 
+            # 자료 기준일도 같은 커넥션에서 읽는다. 따로 열면 갱신 중 잠금에
+            # 다시 걸릴 수 있고, 화면의 매물과 기준일의 시점도 어긋난다.
+            ref_date_str = get_data_reference_date(conn)
+
             conn.close()
         except DataBusyError:
             # 갱신 중이다. 실패가 아니라 대기 상태이므로 화면에 그렇게 알린다.
@@ -887,7 +917,6 @@ def get_properties():
             raise HTTPException(status_code=500, detail=f"매물 데이터를 읽지 못했습니다: {e}")
 
     properties.sort(key=lambda x: x.get("excess_drop_rate", 0.0) or 0.0, reverse=True)
-    ref_date_str = get_data_reference_date()
     days_ago = None
     data_ref_error = None
     if ref_date_str:
@@ -899,7 +928,7 @@ def get_properties():
             # 통째로 비면 더 나쁘다), 사유를 로그와 응답 모두에 남긴다.
             print("!" * 70)
             print(f"[WebGUI] 실거래 자료 기준일을 해석하지 못했습니다: {e}")
-            print("  data/raw/molit/ 아래 폴더명이 YYYY-MM-DD 형식인지 확인하세요.")
+            print("  trades_sale/trades_rent 의 deal_date 가 YYYY-MM-DD 형식인지 확인하세요.")
             print("!" * 70)
             data_ref_error = str(e)
     return {
@@ -1106,22 +1135,11 @@ def _run_refresh_task():
         crawl_state["progress_msg"] = f"{csv_note} · {api_note} — 재계산 중..."
         _run_full_rescore()
 
-        # 기준일 마커는 API 로 실제 신규 자료를 받아왔을 때만 남긴다.
-        # 예전에는 무조건 오늘 날짜 폴더를 만들어, API 를 돌리지 않았거나
-        # 신규분이 0건이어도 배너가 "오늘 기준"이라고 표시했다.
-        # 자료 기준일은 실제 자료의 날짜여야 한다(CSV 만 적재했다면 CSV 스냅샷 날짜).
-        if (trade_new + rent_new) > 0:
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            refresh_dir = os.path.join(str(root_dir), "data", "raw", "molit", today_str)
-            os.makedirs(refresh_dir, exist_ok=True)
-            marker_path = os.path.join(refresh_dir, "_api_refresh.txt")
-            with open(marker_path, "w", encoding="utf-8") as f:
-                f.write(f"API incremental update at {datetime.now().isoformat()}\n")
-                f.write(f"trade_new={trade_new}, rent_new={rent_new}, "
-                        f"trade_dup={trade_dup}, rent_dup={rent_dup}\n")
-        else:
-            print("[Refresh] API 신규분이 없어 기준일 마커를 만들지 않습니다 "
-                  "(배너는 실제 자료 날짜를 그대로 표시합니다).")
+        # 기준일 마커(_api_refresh.txt)는 만들지 않는다.
+        # 자료 기준일은 DB 의 MAX(deal_date) 로 직접 읽는다 — 폴더 이름이라는
+        # 간접 지표를 쓰면 마커 생성 조건이 바뀔 때마다 배너가 어긋난다.
+        # data/raw/molit/ 의 CSV 원본은 Point-In-Time 복원용으로 그대로 둔다.
+        # → get_data_reference_date(), SCORING_DESIGN_v4.3.md D16
 
         crawl_state["progress_msg"] = f"완료 · {csv_note} · {api_note}"
         crawl_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
