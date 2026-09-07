@@ -262,12 +262,18 @@ def run_scoring(base_date: Optional[str] = None, config_path: str = "config/scor
         scored_out = []
         if passed_count > 0:
             raw_vals = [it["_raw_score"] for it in scored_items if it["_raw_score"] is not None]
-            u_mean = sum(raw_vals) / len(raw_vals) if raw_vals else 0.0
-            u_var = sum((v - u_mean) ** 2 for v in raw_vals) / len(raw_vals) if raw_vals else 1.0
+            # (2026-09-07 개정) 중앙값 기준으로 표준화한다.
+            # V11 이 점수 중앙값을 검사하므로 매핑도 중앙값을 기준으로 해야
+            # 전제와 구현이 일치한다. 평균 기준이면 원점수가 비대칭일 때
+            # 중앙값이 구조적으로 50 에서 벗어나 정상 실행이 반려된다
+            # (실측: 46.6, 44.2 로 두 차례 반려됨).
+            u_center = statistics.median(raw_vals) if raw_vals else 0.0
+            u_var = (sum((v - u_center) ** 2 for v in raw_vals) / len(raw_vals)
+                     if raw_vals else 1.0)
             u_std = math.sqrt(u_var) if u_var > 1e-9 else 1.0
 
             for it in scored_items:
-                raw_z = (it["_raw_score"] - u_mean) / u_std
+                raw_z = (it["_raw_score"] - u_center) / u_std
                 # 표준정규분포 CDF (0.5 * (1 + erf(x / sqrt(2))))
                 cdf_val = 0.5 * (1.0 + math.erf(raw_z / math.sqrt(2.0)))
                 base_score = round(cdf_val * 100.0, 1)
