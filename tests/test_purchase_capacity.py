@@ -127,3 +127,57 @@ class TestNoAffordableBracket(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSensitivity(unittest.TestCase):
+    """§5.5 민감도 · 문턱 탐색"""
+
+    def setUp(self):
+        from pc.finance.purchase_capacity import sensitivity
+        self.targets = [{"label": "25평형대", "median_price": 3_245_000_000},
+                        {"label": "30평형대", "median_price": 4_148_000_000}]
+        self.res = sensitivity(available_with(0), AREA_OVER_85, self.targets)
+
+    def test_steps_include_threshold_row(self):
+        self.assertIsNotNone(self.res["threshold"])
+        self.assertTrue(any(r["is_threshold"] for r in self.res["rows"]),
+                        "문턱이 표에 행으로 들어가야 한다")
+
+    def test_threshold_matches_arithmetic(self):
+        # 25.0억을 사려면 필요자금 - (가용 + 2억 대출) 만큼이 더 있어야 한다.
+        from pc.finance.purchase_capacity import evaluate_price
+        av = available_with(0)
+        row = evaluate_price(2_500_000_000, av, AREA_OVER_85)
+        gap = row["required_funds"] - (av + row["loan"])
+        self.assertAlmostEqual(self.res["threshold"], gap, delta=3_000_000)
+
+    def test_max_price_is_monotonic(self):
+        caps = [r["max_price"] for r in self.res["rows"] if r["max_price"] is not None]
+        self.assertEqual(caps, sorted(caps), "추가 자금이 늘면 상한이 줄어들 수 없다")
+
+    def test_plateau_before_threshold(self):
+        # 문턱 전에는 상한이 오르지 않는다(계단의 평평한 구간).
+        rows = [r for r in self.res["rows"] if r["extra_fund"] < self.res["threshold"]]
+        self.assertTrue(len(rows) >= 1)
+        for r in rows[1:]:
+            self.assertEqual(r["increase"], 0, f"문턱 전 {r['extra_fund']:,}원에서 상한이 올랐다")
+
+    def test_shortfall_decreases(self):
+        vals = [next(x["shortfall"] for x in r["shortfalls"] if x["label"] == "25평형대")
+                for r in self.res["rows"] if r["shortfalls"]]
+        self.assertEqual(vals, sorted(vals, reverse=True))
+
+    def test_extra_needed_for_targets(self):
+        needed = {n["label"]: n["extra_needed"] for n in self.res["extra_needed_for_targets"]}
+        self.assertIsNotNone(needed.get("25평형대"))
+        self.assertGreater(needed["30평형대"], needed["25평형대"])
+
+    def test_reached_flag_at_high_extra(self):
+        last = self.res["rows"][-1]
+        hit = [x for x in last["shortfalls"] if x["label"] == "25평형대"]
+        self.assertTrue(hit and hit[0]["reached"], "10억을 넣으면 25평형대에 닿아야 한다")
+
+    def test_no_threshold_when_never_rises(self):
+        from pc.finance.purchase_capacity import find_threshold
+        # 아주 좁은 범위에서는 상한이 오르지 않는다 -> None
+        self.assertIsNone(find_threshold(available_with(0), AREA_OVER_85, max_extra=1_000_000))

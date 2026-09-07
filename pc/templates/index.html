@@ -341,6 +341,13 @@
         .cap-table td.no { color: #f87171; }
         .cap-table td.yes { color: #4ade80; }
         .cap-table tr.edge td { background: rgba(251,191,36,0.08); }
+        .cap-sens { display: flex; flex-wrap: wrap; gap: 22px; }
+        .cap-sens .blk { flex: 1 1 460px; min-width: 420px; }
+        .cap-sens .blk h4 { color: #cbd5e1; font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+        .cap-sens .note { color: #fbbf24; font-size: 12px; margin: 4px 0 8px; }
+        .cap-sens .need { color: #94a3b8; font-size: 12px; margin-top: 6px; line-height: 1.7; }
+        .cap-table tr.thr td { background: rgba(251,191,36,0.12); font-weight: 700; }
+        .cap-table td.reach { color: #4ade80; font-weight: 700; }
     </style>
 </head>
 <body>
@@ -564,6 +571,8 @@
                     <table class="cap-table" id="capCompare"></table>
                     <div class="cap-sub-title" id="capBrTitle" style="display:none;">구간별 판정</div>
                     <table class="cap-table" id="capBracket"></table>
+                    <div class="cap-sub-title" id="capSensTitle" style="display:none;">추가 자금에 따른 변화</div>
+                    <div class="cap-sens" id="capSens"></div>
                     <div class="cap-msgs" id="capMsgs"></div>
                     <div class="cap-basis" id="capBasisNote"></div>
                     <div class="cap-disclaimer">
@@ -1589,7 +1598,8 @@
                     });
                     const r = await res.json();
                     if (r.ok) out.push({label, price, tax: r.sale.total_tax,
-                                        net: r.sale.net_cash, cap: r.capacity.max_price});
+                                        net: r.sale.net_cash, cap: r.capacity.max_price,
+                                        sens: r.sensitivity});
                 } catch (e) { /* 한쪽이 실패하면 그 열은 비운다 */ }
             }
             if (out.length < 2) { title.style.display = 'none'; el.innerHTML = ''; return; }
@@ -1601,6 +1611,51 @@
             el.innerHTML = head + line('양도소득세', o => o.tax) + line('매도 순현금', o => o.net)
                 + '<tr class="total"><td>매수 가능 상한</td>'
                 + out.map(o => '<td>' + eok(o.cap) + '</td>').join('') + '</tr>';
+
+            const sensEl = document.getElementById('capSens');
+            const blocks = out.filter(o => o.sens)
+                .map(o => sensBlockHtml(eok(o.price) + ' (' + o.label + ') 기준', o.sens));
+            document.getElementById('capSensTitle').style.display = blocks.length ? 'block' : 'none';
+            sensEl.innerHTML = blocks.join('');
+        }
+
+        // §6.4 민감도표. 매수 상한 숫자만으로는 의미를 알 수 없으므로
+        // 목표 지역에 얼마가 부족한지를 같은 줄에 둔다.
+        function sensTableHtml(sens) {
+            if (!sens || !sens.rows || !sens.rows.length) return '';
+            const labels = (sens.rows[0].shortfalls || []).map(x => x.label);
+            let h = '<tr><td>추가자금</td><td>매수 상한</td><td>직전 대비</td>'
+                  + labels.map(l => '<td>반포·잠원 ' + l + '</td>').join('') + '</tr>';
+            sens.rows.forEach(r => {
+                const cells = labels.map(l => {
+                    const x = (r.shortfalls || []).find(y => y.label === l);
+                    if (!x) return '<td></td>';
+                    return x.reached ? '<td class="reach">도달</td>'
+                                     : '<td>' + eok(x.shortfall) + ' 부족</td>';
+                }).join('');
+                h += '<tr' + (r.is_threshold ? ' class="thr"' : '') + '><td>' + eok(r.extra_fund)
+                   + '</td><td>' + eok(r.max_price) + '</td><td>'
+                   + (r.increase == null ? '—' : '+' + eok(r.increase)) + '</td>' + cells + '</tr>';
+            });
+            return h;
+        }
+
+        function sensNeedHtml(sens) {
+            const parts = (sens.extra_needed_for_targets || []).map(n =>
+                '반포·잠원 ' + n.label + ' 도달: '
+                + (n.extra_needed == null ? '이 범위에서는 불가' : '추가 자금 ' + eok(n.extra_needed)));
+            return parts.length ? '<div class="need">' + parts.join('<br>') + '</div>' : '';
+        }
+
+        function sensBlockHtml(title, sens) {
+            if (!sens) return '';
+            const thr = sens.threshold == null
+                ? '<div class="note">이 범위에서는 상한이 오르는 지점이 없습니다.</div>'
+                : '<div class="note">다음 구간으로 넘어가려면 추가 자금 '
+                  + eok(sens.threshold) + '이 필요합니다</div>';
+            return '<div class="blk"><h4>' + title + '</h4>' + thr
+                 + '<table class="cap-table">' + sensTableHtml(sens) + '</table>'
+                 + sensNeedHtml(sens) + '</div>';
         }
 
         const OPTIONAL_COLUMNS = [

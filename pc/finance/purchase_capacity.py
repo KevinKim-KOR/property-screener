@@ -181,3 +181,105 @@ def evaluate_price(price: float, available_funds: float, area_over_85: bool,
         "available_funds": available_funds,
         "feasible": need <= available_funds + loan + 1e-6,
     }
+
+
+# §5.5 민감도. 계단 구조 때문에 증가폭이 균등하지 않다는 점이 이 표의 핵심이다.
+# 문턱(2.6억 부근)이 보이도록 2.5억을 구간에 넣었다.
+SENSITIVITY_STEPS = (0, 100_000_000, 200_000_000, 250_000_000, 300_000_000,
+                     400_000_000, 500_000_000, 700_000_000, 1_000_000_000)
+
+
+def find_threshold(base_available: float, area_over_85: bool,
+                   max_extra: float = 3_000_000_000.0, tol: float = 1_000_000.0,
+                   config_path: Optional[str] = None) -> Optional[float]:
+    """
+    "얼마를 더 넣으면 매수 상한이 오르는가" 를 이분탐색으로 찾는다.
+
+    상한이 구간 상단에 걸려 있으면 추가 자금을 조금 넣어도 상한이 그대로다.
+    그 정체 구간을 벗어나는 최소 추가 자금을 돌려준다. 끝까지 안 오르면 None.
+    (매수 상한은 추가 자금에 대해 단조 비감소이므로 이분탐색이 성립한다)
+    """
+    def cap_at(extra: float) -> Optional[float]:
+        return compute_capacity(base_available + extra, area_over_85, config_path).max_price
+
+    base = cap_at(0.0)
+    if base is None:
+        return None
+    if cap_at(max_extra) is None or cap_at(max_extra) <= base + tol:
+        return None   # 이 범위에서는 오르지 않는다
+
+    lo, hi = 0.0, max_extra
+    while hi - lo > tol:
+        mid = (lo + hi) / 2.0
+        c = cap_at(mid)
+        if c is not None and c > base + tol:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def sensitivity(base_available: float, area_over_85: bool,
+                targets: Optional[List[Dict]] = None,
+                steps: Optional[List[float]] = None,
+                config_path: Optional[str] = None) -> Dict:
+    """
+    §6.4 민감도표.
+
+    targets: [{"label": "25평형대", "median_price": 3_245_000_000}, ...]
+             목표 지역 중위가. 매수 상한만으로는 의미를 알 수 없으므로
+             '얼마가 부족한지' 를 함께 낸다.
+    """
+    steps = list(steps if steps is not None else SENSITIVITY_STEPS)
+    threshold = find_threshold(base_available, area_over_85, config_path=config_path)
+    if threshold is not None and not any(abs(threshold - s) < 1_000_000 for s in steps):
+        steps.append(threshold)
+        steps.sort()
+
+    rows: List[Dict] = []
+    prev: Optional[float] = None
+    for extra in steps:
+        cap = compute_capacity(base_available + extra, area_over_85, config_path)
+        price = cap.max_price
+        row = {
+            "extra_fund": round(extra),
+            "max_price": None if price is None else round(price),
+            "increase": None if (price is None or prev is None) else round(price - prev),
+            "is_threshold": threshold is not None and abs(extra - threshold) < 1_000_000,
+            "shortfalls": [],
+        }
+        for t in (targets or []):
+            med = t.get("median_price")
+            if med is None or price is None:
+                continue
+            row["shortfalls"].append({
+                "label": t["label"],
+                "shortfall": round(max(0.0, med - price)),
+                "reached": price >= med,
+            })
+        rows.append(row)
+        if price is not None:
+            prev = price
+
+    # 목표 지역에 닿으려면 추가 자금이 얼마 필요한지
+    needed: List[Dict] = []
+    for t in (targets or []):
+        med = t.get("median_price")
+        if med is None:
+            continue
+        lo, hi = 0.0, 5_000_000_000.0
+        top = compute_capacity(base_available + hi, area_over_85, config_path).max_price
+        if top is None or top < med:
+            needed.append({"label": t["label"], "extra_needed": None})
+            continue
+        while hi - lo > 1_000_000.0:
+            mid = (lo + hi) / 2.0
+            c = compute_capacity(base_available + mid, area_over_85, config_path).max_price
+            if c is not None and c >= med:
+                hi = mid
+            else:
+                lo = mid
+        needed.append({"label": t["label"], "extra_needed": round(hi)})
+
+    return {"threshold": None if threshold is None else round(threshold),
+            "rows": rows, "extra_needed_for_targets": needed}

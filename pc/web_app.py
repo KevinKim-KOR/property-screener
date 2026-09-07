@@ -430,7 +430,7 @@ def calc_capacity(payload: CapacityInputPayload):
         CapitalGainsError, MissingInputError, compute_sale,
     )
     from pc.finance.purchase_capacity import (
-        PurchaseCapacityError, compute_capacity, evaluate_price,
+        PurchaseCapacityError, compute_capacity, evaluate_price, sensitivity,
     )
     from common.tax_config import TaxConfigError
 
@@ -502,9 +502,19 @@ def calc_capacity(payload: CapacityInputPayload):
                 "shortfall": round(target - cap.max_price),
             })
 
+    # §5.5 민감도. 목표 지역 중위가를 함께 넘겨 '얼마가 부족한지' 를 같이 낸다.
+    targets = [{"label": g["label"], "median_price": g["median_price"] * 100000000.0}
+               for g in (bench["groups"] if bench else []) if g.get("median_price") is not None]
+    try:
+        sens = sensitivity(available, over85, targets)
+    except (PurchaseCapacityError, TaxConfigError) as e:
+        print(f"[WebGUI] sensitivity error: {e}")
+        sens = None
+
     r = lambda v: None if v is None else round(v)
     return {
         "ok": True,
+        "sensitivity": sens,
         "sale": {
             "sale_price": r(float(str(payload.sale_price).replace(",", ""))),
             "brokerage_fee": r(sale.brokerage_fee),
