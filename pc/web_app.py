@@ -5,6 +5,7 @@ import yaml
 import sys
 import os
 import threading
+import time
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -170,6 +171,38 @@ def _run_full_rescore(base_date: str = None):
     from common.my_property import verify_no_foreign_sgg
     verify_no_foreign_sgg(base_date)
     print("[Rescore] 유니버스 오염 검사 통과")
+
+class DataBusyError(RuntimeError):
+    """자료 갱신 중이라 DB 가 잠긴 상태. 실패가 아니라 대기 상태다."""
+
+
+# 갱신(적재)이 도는 동안 SQLite 가 쓰기 잠금을 잡는다. 그 사이의 읽기 실패는
+# 오류가 아니라 대기 상태이므로 잠깐 기다렸다 다시 시도한다.
+# 재시도해도 안 되면 그때는 진짜 실패로 보고 500 을 낸다.
+DB_RETRY_ATTEMPTS = 3
+DB_RETRY_DELAY_SEC = 0.5
+
+
+def open_db(db_path):
+    """
+    읽기용 커넥션. 잠금이면 잠깐 기다렸다 다시 시도한다.
+    끝까지 잠겨 있으면 DataBusyError 를 던진다(500 과 구분하기 위함).
+    """
+    last = None
+    for attempt in range(DB_RETRY_ATTEMPTS):
+        try:
+            conn = sqlite3.connect(db_path, timeout=DB_RETRY_DELAY_SEC)
+            conn.row_factory = sqlite3.Row
+            conn.execute("SELECT 1")
+            return conn
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() and "busy" not in str(e).lower():
+                raise
+            last = e
+            if attempt < DB_RETRY_ATTEMPTS - 1:
+                time.sleep(DB_RETRY_DELAY_SEC)
+    raise DataBusyError(str(last))
+
 
 def get_data_reference_date():
     """data/raw/molit/ 폴더 내 매매 CSV 또는 API 갱신 마커가 있는 가장 최신 날짜 폴더명을 반환합니다."""
@@ -382,6 +415,127 @@ def calc_sale(payload: SaleInputPayload):
     }
 
 
+class CapacityInputPayload(SaleInputPayload):
+    """매수 조건(§3.2). price_basis 는 §12 미확정이라 계산에 쓰지 않고 표시만 한다."""
+    cash_on_hand: Optional[str] = None
+    extra_fund: Optional[str] = None
+    area_over_85: Optional[bool] = False
+    price_basis: Optional[str] = None
+
+
+@app.post("/api/purchase_capacity/full")
+def calc_capacity(payload: CapacityInputPayload):
+    """매도 내역 + 매수 가능 상한(§5.4) + 구간별 판정표(§6.3)."""
+    from pc.finance.capital_gains import (
+        CapitalGainsError, MissingInputError, compute_sale,
+    )
+    from pc.finance.purchase_capacity import (
+        PurchaseCapacityError, compute_capacity, evaluate_price,
+    )
+    from common.tax_config import TaxConfigError
+
+    try:
+        sale = compute_sale(payload.dict())
+    except MissingInputError as e:
+        return {"ok": False, "reason": "missing_input", "missing": e.missing}
+    except (CapitalGainsError, TaxConfigError) as e:
+        return {"ok": False, "reason": "calculation_failed", "message": str(e)}
+
+    missing_buy = []
+    def _num(key, label):
+        v = payload.dict().get(key)
+        if v is None or str(v).strip() == "":
+            missing_buy.append(label)
+            return None
+        try:
+            return float(str(v).replace(",", ""))
+        except ValueError:
+            missing_buy.append(label)
+            return None
+
+    cash = _num("cash_on_hand", "보유 현금")
+    extra = _num("extra_fund", "추가 여유자금")
+    if missing_buy:
+        return {"ok": False, "reason": "missing_input", "missing": missing_buy}
+
+    available = sale.net_cash + cash + extra
+    over85 = bool(payload.area_over_85)
+
+    try:
+        cap = compute_capacity(available, over85)
+    except (PurchaseCapacityError, TaxConfigError) as e:
+        return {"ok": False, "reason": "calculation_failed", "message": str(e)}
+
+    # §6.3 구간별 판정표. 구간 경계 부근을 반드시 넣어 계단이 보이게 한다.
+    probes = sorted({1_490_000_000, 1_500_000_000, 1_510_000_000,
+                     2_490_000_000, 2_499_999_999, 2_500_000_000, 2_510_000_000,
+                     int(cap.max_price) if cap.max_price else 0} - {0})
+    table = []
+    for pr in probes:
+        try:
+            table.append(evaluate_price(float(pr), available, over85))
+        except PurchaseCapacityError:
+            continue
+
+    # 목표 지역 대비 부족액. 상한만으로는 의미를 알 수 없다.
+    bench = None
+    try:
+        conn = open_db(Path(Config.get_db_path()))
+        bench = _benchmark_stats(conn.cursor())
+        conn.close()
+    except DataBusyError:
+        bench = None
+    except Exception as e:
+        print(f"[WebGUI] benchmark read error: {e}")
+        bench = None
+
+    gaps = []
+    if bench and cap.max_price:
+        for g in bench["groups"]:
+            if g.get("median_price") is None:
+                continue
+            target = g["median_price"] * 100000000.0
+            gaps.append({
+                "label": g["label"],
+                "complex_count": g["complex_count"],
+                "median_price": g["median_price"],
+                "shortfall": round(target - cap.max_price),
+            })
+
+    r = lambda v: None if v is None else round(v)
+    return {
+        "ok": True,
+        "sale": {
+            "sale_price": r(float(str(payload.sale_price).replace(",", ""))),
+            "brokerage_fee": r(sale.brokerage_fee),
+            "total_tax": r(sale.total_tax),
+            "mortgage_balance": r(float(str(payload.mortgage_balance).replace(",", ""))),
+            "net_cash": r(sale.net_cash),
+            "cash_on_hand": r(cash),
+            "extra_fund": r(extra),
+            "available_funds": r(available),
+        },
+        "capacity": {
+            "max_price": r(cap.max_price),
+            "loan_at_max": r(cap.loan_at_max),
+            "own_funds_needed": r(cap.own_funds_needed),
+            "leftover": r(cap.leftover),
+            "cost_rate": cap.cost_rate,
+        },
+        "bracket_table": [
+            {"price": r(t["price"]), "loan": r(t["loan"]),
+             "required_funds": r(t["required_funds"]),
+             "available_funds": r(t["available_funds"]), "feasible": t["feasible"]}
+            for t in table
+        ],
+        "gaps": gaps,
+        "price_basis": payload.price_basis or "",
+        "notes": sale.notes + cap.notes,
+        "warnings": sale.warnings,
+        "basis": sale.basis,
+    }
+
+
 @app.get("/api/my_property")
 def get_my_property_api():
     """
@@ -402,8 +556,7 @@ def get_my_property_api():
         return {"configured": True, "found": False, "config": mp}
 
     try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
+        conn = open_db(db_path)
         cur = conn.cursor()
         cur.execute("""
             SELECT s.* FROM complex_area_stats s
@@ -415,6 +568,10 @@ def get_my_property_api():
         row = cur.fetchone()
         bench = _benchmark_stats(cur) if row else None
         conn.close()
+    except DataBusyError:
+        # 갱신 중이다. 실패가 아니라 대기 상태이므로 화면에 그렇게 알린다.
+        raise HTTPException(status_code=503,
+            detail="자료를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요.")
     except Exception as e:
         print(f"[WebGUI] my_property read error: {e}")
         raise HTTPException(status_code=500, detail=f"보유 주택 지표를 읽지 못했습니다: {e}")
@@ -459,8 +616,7 @@ def get_properties():
     excluded_properties = []
     if db_path.exists():
         try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+            conn = open_db(db_path)
             cursor = conn.cursor()
 
             # market_scores 로드 (최신 base_date 기준)
@@ -709,6 +865,10 @@ def get_properties():
                         properties.append(prop_data)
 
             conn.close()
+        except DataBusyError:
+            # 갱신 중이다. 실패가 아니라 대기 상태이므로 화면에 그렇게 알린다.
+            raise HTTPException(status_code=503,
+                detail="자료를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요.")
         except Exception as e:
             # 빈 목록을 200 으로 돌려주면 "매물 0건"으로 보여 실패가 감춰진다.
             print(f"[WebGUI] DB read error: {e}")
@@ -749,13 +909,16 @@ def get_region_stats_api():
     res = []
     if db_path.exists():
         try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+            conn = open_db(db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM region_stats WHERE base_date = (SELECT MAX(base_date) FROM region_stats) ORDER BY sgg_cd, area_type")
             for r in cursor.fetchall():
                 res.append(dict(r))
             conn.close()
+        except DataBusyError:
+            # 갱신 중이다. 실패가 아니라 대기 상태이므로 화면에 그렇게 알린다.
+            raise HTTPException(status_code=503,
+                detail="자료를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요.")
         except Exception as e:
             print(f"[WebGUI] region_stats read error: {e}")
             raise HTTPException(status_code=500, detail=f"지역 통계를 읽지 못했습니다: {e}")
@@ -767,14 +930,17 @@ def get_evidence_api(complex_code: str, area_type: str):
     db_path = Path(Config.get_db_path())
     if db_path.exists():
         try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+            conn = open_db(db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT evidence_json FROM market_scores WHERE complex_code = ? AND area_type = ? ORDER BY base_date DESC LIMIT 1", (complex_code, area_type))
             row = cursor.fetchone()
             conn.close()
             if row and row["evidence_json"]:
                 return json.loads(row["evidence_json"])
+        except DataBusyError:
+            # 갱신 중이다. 실패가 아니라 대기 상태이므로 화면에 그렇게 알린다.
+            raise HTTPException(status_code=503,
+                detail="자료를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요.")
         except Exception as e:
             print(f"[WebGUI] evidence read error: {e}")
             raise HTTPException(status_code=500, detail=f"스코어링 근거를 읽지 못했습니다: {e}")

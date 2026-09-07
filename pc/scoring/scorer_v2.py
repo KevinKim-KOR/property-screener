@@ -48,6 +48,12 @@ def run_l1_scoring_v2(base_date: Optional[str] = None) -> Dict:
         all_items = [dict(r) for r in cur.fetchall()]
         all_items = exclude_my_property(all_items)  # 내 집은 강남권 점수 유니버스에서 제외
 
+        # market_scores 의 기본키에 run_id 가 들어 있어, 지우지 않으면 실행마다 행이 쌓인다.
+        # 예전에는 뒤이어 도는 v3 가 base_date 행을 통째로 지워 정리됐지만,
+        # v3 는 이제 run 검증(V10/V11)을 통과한 뒤에만 지우고 다시 쓴다(C14).
+        # 그래서 v3 가 반려되면 v2 행이 그대로 남아 두 배로 늘었다. 여기서 정리한다.
+        cur.execute("DELETE FROM market_scores WHERE base_date = ?", (base_date,))
+
         stats["universe_total"] = len(all_items)
 
         for item in all_items:
