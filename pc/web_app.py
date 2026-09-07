@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # 프로젝트 루트를 sys.path에 추가
 root_dir = Path(__file__).resolve().parent.parent
@@ -310,6 +310,76 @@ def _benchmark_stats(cur, _unused_area_type=None):
     if not groups:
         return None
     return {"regions": " + ".join(BENCHMARK_REGIONS), "groups": groups}
+
+
+class SaleInputPayload(BaseModel):
+    """매도 관련 입력. 빈 값은 None 으로 받아 '미입력'과 0 을 구분한다."""
+    sale_price: Optional[str] = None
+    acq_price_prior: Optional[str] = None
+    right_value: Optional[str] = None
+    contribution: Optional[str] = None
+    member_supply_price: Optional[str] = None
+    necessary_expense: Optional[str] = None
+    mortgage_balance: Optional[str] = None
+    hold_rate_prior: Optional[str] = None
+    live_rate_prior: Optional[str] = None
+    hold_rate_contrib: Optional[str] = None
+    live_rate_contrib: Optional[str] = None
+
+
+@app.post("/api/purchase_capacity/sale")
+def calc_sale(payload: SaleInputPayload):
+    """
+    매도 내역(양도세·순현금) 산출. 개발요청서 §5.1~5.3, §6.2.
+
+    필수 입력이 비면 계산하지 않고 어느 항목이 비었는지 돌려준다.
+    계산이 실패하면 세금을 0 으로 두지 않고 실패를 그대로 알린다.
+    """
+    from pc.finance.capital_gains import (
+        CapitalGainsError, MissingInputError, compute_sale,
+    )
+    from common.tax_config import TaxConfigError
+
+    try:
+        res = compute_sale(payload.dict())
+    except MissingInputError as e:
+        return {"ok": False, "reason": "missing_input", "missing": e.missing}
+    except (CapitalGainsError, TaxConfigError) as e:
+        # 실패를 숨기고 0 으로 채우지 않는다.
+        return {"ok": False, "reason": "calculation_failed", "message": str(e)}
+
+    r = lambda v: round(v)
+    return {
+        "ok": True,
+        "breakdown": {
+            "sale_price": r(float(payload.sale_price.replace(",", ""))
+                            if isinstance(payload.sale_price, str) else payload.sale_price),
+            "brokerage_fee": r(res.brokerage_fee),
+            "total_tax": r(res.total_tax),
+            "mortgage_balance": r(float(str(payload.mortgage_balance).replace(",", ""))),
+            "net_cash": r(res.net_cash),
+        },
+        "tax_detail": {
+            "gain_before_approval": r(res.gain_before_approval),
+            "gain_after_approval": r(res.gain_after_approval),
+            "contribution_ratio": round(res.contribution_ratio, 6),
+            "gain_prior_building": r(res.gain_prior_building),
+            "gain_contribution": r(res.gain_contribution),
+            "gain_total": r(res.gain_total),
+            "taxable_ratio": round(res.taxable_ratio, 6),
+            "long_term_deduction": r(res.long_term_deduction),
+            "taxable_income": r(res.taxable_income),
+            "tax_base": r(res.tax_base),
+            "applied_rate": res.applied_rate,
+            "applied_deduction": r(res.applied_deduction),
+            "calculated_tax": r(res.calculated_tax),
+            "local_income_tax": r(res.local_income_tax),
+        },
+        "is_exempt": res.is_exempt,
+        "notes": res.notes,
+        "warnings": res.warnings,
+        "basis": res.basis,
+    }
 
 
 @app.get("/api/my_property")

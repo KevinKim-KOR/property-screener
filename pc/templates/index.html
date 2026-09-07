@@ -308,6 +308,25 @@
         .mp-bgroup { margin-bottom: 10px; }
         .mp-bgroup:last-child { margin-bottom: 0; }
         .mp-bgroup-title { color: #cbd5e1; font-size: 12px; font-weight: 600; margin: 6px 0 3px; }
+        .cap-box { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+            padding: 16px 18px; margin-bottom: 14px; }
+        .cap-title { color: #fff; font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+        .cap-mine { color: #93c5fd; font-size: 12px; margin-bottom: 12px; line-height: 1.7; }
+        .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px 16px; }
+        .cap-field label { display: block; color: #8b95a5; font-size: 11px; margin-bottom: 4px; }
+        .cap-hint { color: #64748b; margin-left: 5px; }
+        .cap-actions { margin-top: 12px; }
+        .cap-blocked { color: #fbbf24; font-size: 13px; line-height: 1.8; }
+        .cap-table { width: 100%; border-collapse: collapse; }
+        .cap-table td { padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; }
+        .cap-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: #e2e8f0; }
+        .cap-table tr.total td { font-weight: 700; color: #fff; border-bottom: none; padding-top: 10px; }
+        .cap-msgs { margin-top: 12px; font-size: 12px; line-height: 1.8; }
+        .cap-msgs .warn { color: #fbbf24; }
+        .cap-msgs .note { color: #94a3b8; }
+        .cap-basis { margin-top: 10px; color: #64748b; font-size: 11px; }
+        .cap-disclaimer { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);
+            color: #8b95a5; font-size: 11px; }
     </style>
 </head>
 <body>
@@ -351,6 +370,9 @@
             <button class="tab-btn" id="tabExcluded" onclick="switchTab('excluded')">
                 <span>제외 매물</span>
                 <span class="tab-count" id="excludedCountBadge">0</span>
+            </button>
+            <button class="tab-btn" id="tabCapacity" onclick="switchTab('capacity')">
+                <span>매수 여력</span>
             </button>
         </div>
 
@@ -475,7 +497,44 @@
         </div>
 
         <!-- Table -->
-        <div class="data-table-wrap">
+                <!-- 매수 여력 -->
+        <div id="capacityPane" style="display:none;">
+            <div class="cap-box">
+                <div class="cap-title">매도 조건</div>
+                <div class="cap-mine" id="capMine"></div>
+                <div class="cap-grid">
+                    <div class="cap-field"><label for="capSalePrice">매도 예상가<span class="cap-hint">원</span></label><input type="text" inputmode="decimal" id="capSalePrice" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capAcqPrior">종전주택 취득가액<span class="cap-hint">원</span></label><input type="text" inputmode="decimal" id="capAcqPrior" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capRightValue">권리가액<span class="cap-hint">원</span></label><input type="text" inputmode="decimal" id="capRightValue" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capContribution">부담금<span class="cap-hint">원</span></label><input type="text" inputmode="decimal" id="capContribution" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capSupplyPrice">조합원 분양가<span class="cap-hint">원</span></label><input type="text" inputmode="decimal" id="capSupplyPrice" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capNecessary">필요경비<span class="cap-hint">원 · 선택</span></label><input type="text" inputmode="decimal" id="capNecessary" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capMortgage">상환할 주택담보대출 잔액<span class="cap-hint">원</span></label><input type="text" inputmode="decimal" id="capMortgage" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capHoldPrior">기존건물분 보유공제율<span class="cap-hint">0~1</span></label><input type="text" inputmode="decimal" id="capHoldPrior" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capLivePrior">기존건물분 거주공제율<span class="cap-hint">0~1</span></label><input type="text" inputmode="decimal" id="capLivePrior" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capHoldContrib">청산금분 보유공제율<span class="cap-hint">0~1</span></label><input type="text" inputmode="decimal" id="capHoldContrib" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capLiveContrib">청산금분 거주공제율<span class="cap-hint">0~1</span></label><input type="text" inputmode="decimal" id="capLiveContrib" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                </div>
+                <div class="cap-actions">
+                    <button class="btn-filter" onclick="resetCapacityInputs()">입력 초기화</button>
+                </div>
+            </div>
+
+            <div class="cap-box" id="capResultBox">
+                <div class="cap-title">매도 내역</div>
+                <div class="cap-blocked" id="capBlocked" style="display:none;"></div>
+                <div id="capResult" style="display:none;">
+                    <table class="cap-table" id="capTable"></table>
+                    <div class="cap-msgs" id="capMsgs"></div>
+                    <div class="cap-basis" id="capBasis"></div>
+                    <div class="cap-disclaimer">
+                        세액은 참고용 추정치입니다. 확정 세액은 세무 전문가의 확인이 필요합니다.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+<div class="data-table-wrap">
             <table class="data-table" id="mainTable">
                 <thead id="tableHead"></thead>
                 <tbody id="tableBody"></tbody>
@@ -738,6 +797,20 @@
             activeTab = tab;
             document.getElementById('tabActive').classList.toggle('active', tab === 'active');
             document.getElementById('tabExcluded').classList.toggle('active', tab === 'excluded');
+            document.getElementById('tabCapacity').classList.toggle('active', tab === 'capacity');
+
+            // 매수 여력은 입력 항목이 많아 매물 표와 같은 화면에 두지 않는다.
+            const isCapacity = (tab === 'capacity');
+            ['filterBar', 'myPropertyBox', 'condSummaryBar', 'columnPresetBar'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = isCapacity ? 'none' : '';
+            });
+            const tableWrap = document.querySelector('.data-table-wrap');
+            if (tableWrap) tableWrap.style.display = isCapacity ? 'none' : '';
+            const capPane = document.getElementById('capacityPane');
+            if (capPane) capPane.style.display = isCapacity ? 'block' : 'none';
+            if (isCapacity) { loadCapacityInputs(); onCapacityInput(); return; }
+
             const presetBar = document.getElementById('columnPresetBar');
             if (presetBar) presetBar.style.display = (tab === 'active') ? 'block' : 'none';
             // Reset sort for excluded tab
@@ -1163,6 +1236,7 @@
             } catch (e) { return; }
             if (!d || !d.configured) return;
 
+            capMineData = d;
             const box = document.getElementById('myPropertyBox');
             box.style.display = 'block';
 
@@ -1257,6 +1331,133 @@
             document.getElementById('mpBenchTitle').textContent = '반포·잠원 대비';
             document.getElementById('mpBenchRows').innerHTML = blocks.join('');
             box.style.display = 'block';
+        }
+
+        // ── 매수 여력 (Phase 1: 매도 내역) ──────────────────────
+        // 필수 입력이 비면 결과를 만들지 않는다. 부분 결과나 추정치를 보여주지 않는다.
+        const CAP_FIELDS = [
+            ['capSalePrice',   'sale_price'],
+            ['capAcqPrior',    'acq_price_prior'],
+            ['capRightValue',  'right_value'],
+            ['capContribution','contribution'],
+            ['capSupplyPrice', 'member_supply_price'],
+            ['capNecessary',   'necessary_expense'],
+            ['capMortgage',    'mortgage_balance'],
+            ['capHoldPrior',   'hold_rate_prior'],
+            ['capLivePrior',   'live_rate_prior'],
+            ['capHoldContrib', 'hold_rate_contrib'],
+            ['capLiveContrib', 'live_rate_contrib'],
+        ];
+
+        const won = v => (v == null) ? '' : Number(v).toLocaleString('ko-KR') + '원';
+        const eok = v => (v == null) ? '' : (Number(v) / 100000000).toFixed(2) + '억';
+
+        function collectCapacityInputs() {
+            const out = {};
+            CAP_FIELDS.forEach(([id, key]) => {
+                const el = document.getElementById(id);
+                out[key] = el ? el.value.trim() : '';
+            });
+            return out;
+        }
+
+        function saveCapacityInputs() {
+            // 개인 자금 정보다. 브라우저에만 두고 저장소나 서버에 남기지 않는다.
+            try { localStorage.setItem('screener_capacity_inputs',
+                JSON.stringify(collectCapacityInputs())); } catch (e) {}
+        }
+
+        function loadCapacityInputs() {
+            let saved = {};
+            try { saved = JSON.parse(localStorage.getItem('screener_capacity_inputs') || '{}'); }
+            catch (e) { saved = {}; }
+            CAP_FIELDS.forEach(([id, key]) => {
+                const el = document.getElementById(id);
+                if (el && !el.value && saved[key]) el.value = saved[key];
+            });
+            renderCapacityMine();
+        }
+
+        function resetCapacityInputs() {
+            CAP_FIELDS.forEach(([id]) => { const el = document.getElementById(id); if (el) el.value = ''; });
+            try { localStorage.removeItem('screener_capacity_inputs'); } catch (e) {}
+            onCapacityInput();
+        }
+
+        // 내 집 최근 실거래를 참고값으로 보여준다. 입력값을 덮어쓰지 않는다.
+        let capMineData = null;
+        function renderCapacityMine() {
+            const el = document.getElementById('capMine');
+            if (!el) return;
+            if (!capMineData || !capMineData.found) { el.textContent = ''; return; }
+            const lines = ['최근 실거래(3개월 중위)　' + capMineData.median_price_3m.toFixed(2) + '억'];
+            const inp = document.getElementById('capSalePrice');
+            if (inp && !inp.value) {
+                lines.push('매도 예상가가 비어 있습니다. 위 값을 참고해 직접 입력하세요.');
+            }
+            el.innerHTML = lines.join('<br>');
+        }
+
+        let capTimer = null;
+        function onCapacityInput() {
+            saveCapacityInputs();
+            renderCapacityMine();
+            clearTimeout(capTimer);
+            capTimer = setTimeout(runCapacityCalc, 250);
+        }
+
+        async function runCapacityCalc() {
+            const blocked = document.getElementById('capBlocked');
+            const result = document.getElementById('capResult');
+            let d;
+            try {
+                const res = await fetch('/api/purchase_capacity/sale', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(collectCapacityInputs())
+                });
+                d = await res.json();
+            } catch (e) {
+                result.style.display = 'none';
+                blocked.style.display = 'block';
+                blocked.textContent = '계산을 요청하지 못했습니다. 잠시 후 다시 시도하세요.';
+                return;
+            }
+
+            if (!d.ok) {
+                result.style.display = 'none';
+                blocked.style.display = 'block';
+                if (d.reason === 'missing_input') {
+                    blocked.innerHTML = '아래 항목을 입력하면 결과가 표시됩니다.<br>· '
+                        + d.missing.join('<br>· ');
+                } else {
+                    blocked.textContent = '계산할 수 없습니다 — ' + (d.message || '');
+                }
+                return;
+            }
+
+            blocked.style.display = 'none';
+            result.style.display = 'block';
+
+            const b = d.breakdown;
+            const rows = [
+                ['매도가', b.sale_price],
+                ['중개보수', -b.brokerage_fee],
+                ['양도소득세', -b.total_tax],
+                ['대출 상환', -b.mortgage_balance],
+            ];
+            let html = rows.map(([k, v]) =>
+                '<tr><td>' + k + '</td><td>' + won(v) + '</td></tr>').join('');
+            html += '<tr class="total"><td>매도 순현금</td><td>' + won(b.net_cash)
+                 + '　(' + eok(b.net_cash) + ')</td></tr>';
+            document.getElementById('capTable').innerHTML = html;
+
+            const msgs = [];
+            (d.warnings || []).forEach(w => msgs.push('<div class="warn">⚠ ' + w + '</div>'));
+            (d.notes || []).forEach(n => msgs.push('<div class="note">· ' + n + '</div>'));
+            document.getElementById('capMsgs').innerHTML = msgs.join('');
+            document.getElementById('capBasis').textContent =
+                '적용 기준 ' + (d.basis.capital_gains_effective_from || '')
+                + ' · ' + (d.basis.capital_gains_source || '');
         }
 
         const OPTIONAL_COLUMNS = [

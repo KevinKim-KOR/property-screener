@@ -1,0 +1,60 @@
+# config/tax_and_loan.yaml
+#
+# 세제·대출 규제 파라미터. 코드에 직접 쓰지 않고 여기에만 둔다.
+# 세제와 대출 규제는 자주 바뀌므로 항목마다 시행일과 출처를 함께 보관한다.
+#
+# 스코어링 설정(config/scoring_v3.yaml)과 섞지 않는다. 성격과 갱신 주기가 다르다.
+
+version: "1.0"
+updated_at: "2026-09-07"
+
+# ── 양도소득세 ────────────────────────────────────────────────
+capital_gains_tax:
+  effective_from: "2026-01-01"
+  source: "소득세법 제55조 종합소득세 기본세율 (2026년 귀속)"
+
+  # 과세표준 구간별 세율과 누진공제 (단위: 원)
+  brackets:
+    - { min: 0,             max: 14000000,   rate: 0.06, deduction: 0 }
+    - { min: 14000000,      max: 50000000,   rate: 0.15, deduction: 1260000 }
+    - { min: 50000000,      max: 88000000,   rate: 0.24, deduction: 5760000 }
+    - { min: 88000000,      max: 150000000,  rate: 0.35, deduction: 15440000 }
+    - { min: 150000000,     max: 300000000,  rate: 0.38, deduction: 19940000 }
+    - { min: 300000000,     max: 500000000,  rate: 0.40, deduction: 25940000 }
+    - { min: 500000000,     max: 1000000000, rate: 0.42, deduction: 35940000 }
+    - { min: 1000000000,    max: null,       rate: 0.45, deduction: 65940000 }
+
+  local_income_tax_rate: 0.10        # 지방소득세: 산출세액의 10%
+  basic_deduction: 2500000           # 양도소득 기본공제 (연 1회)
+
+  one_house_exemption_limit: 1200000000   # 1세대 1주택 비과세 기준금액
+  one_house_exemption_source: "소득세법 시행령 제156조 (고가주택 기준 12억)"
+
+  # 장기보유특별공제 합계 상한.
+  # 80% 가 맞는지 세무 확인 중이라 지금은 '경고만' 한다. 계산을 막지 않는다.
+  long_term_deduction_warn_over: 0.80
+  long_term_deduction_enforce: false
+  long_term_deduction_note: "1세대 1주택 장특공 보유 40% + 거주 40%. 상한 확인 대기"
+
+# ── 대출 한도 (Phase 2 에서 사용) ──────────────────────────────
+loan_limit:
+  effective_from: "2025-10-15"
+  source: "2025-10-15 주택시장 안정화 대책 (규제지역)"
+  ltv: 0.40
+  # 주택가격 구간별 대출 한도 (단위: 원)
+  brackets:
+    - { min: 0,           max: 1500000000, limit: 600000000 }
+    - { min: 1500000000,  max: 2500000000, limit: 400000000 }
+    - { min: 2500000000,  max: null,       limit: 200000000 }
+
+# ── 거래 부대비용 ─────────────────────────────────────────────
+transaction_cost:
+  effective_from: "2026-01-01"
+  source: "공인중개사법 시행규칙 별표1 / 지방세법 제11조"
+
+  brokerage_rate_over_1_5b: 0.007    # 매매 15억 이상 상한요율 (협의 가능)
+  brokerage_vat_rate: 0.10
+
+  acquisition_tax_over_900m: 0.030   # 취득세 (9억 초과)
+  local_education_tax: 0.003         # 지방교육세
+  rural_special_tax_over_85: 0.002   # 농어촌특별세 (전용 85㎡ 초과)
