@@ -7,6 +7,29 @@ SCORING_V3.1_DESIGN.md §16 UI 명세 전면 재작성:
 """
 from typing import Dict, Optional
 
+_seen_unknown_area_types = set()
+
+
+def _warn_unknown_area_type(value) -> None:
+    """
+    알 수 없는 area_type 을 로그에 남긴다.
+    빈칸이 화면에 뜨면 원인을 바로 찾을 수 있어야 한다.
+    같은 값이 반복 호출돼도 한 번만 찍는다(대량 루프에서 로그가 넘치지 않도록).
+    """
+    key = repr(value)
+    if key in _seen_unknown_area_types:
+        return
+    _seen_unknown_area_types.add(key)
+    caller = "알 수 없음"
+    try:
+        import inspect
+        fr = inspect.stack()[2]
+        caller = f"{fr.filename.split('/')[-1]}:{fr.lineno}"
+    except Exception:
+        pass
+    print(f"[경고] 알 수 없는 area_type: {key} (호출: {caller})")
+
+
 def translate_area_type(area_type: str) -> str:
     """§16.2 표기 변환표: 내부 5㎡ area_type -> 한글 통칭 표기 (25평 / 34평 / 44평+ / 실제 버킷 전용 면적)"""
     s = str(area_type or "").upper()
@@ -49,7 +72,12 @@ def translate_area_type(area_type: str) -> str:
             else:
                 py_label = "44평"
             return f"{py_label} / {rep_m2}㎡"
-    return "34평 / 84㎡"
+
+    # 알 수 없는 값은 기본값으로 덮지 않는다(C5·C13).
+    # area_type 은 5㎡ 버킷이라 값이 정해져 있으므로, 모르는 값이 들어왔다면
+    # 상류가 잘못됐다는 신호다. "34평"으로 덮으면 그 신호가 사라진다.
+    _warn_unknown_area_type(area_type)
+    return ""
 
 
 def translate_price_interpretation(asking_price: float, median_price_3m: float) -> str:
