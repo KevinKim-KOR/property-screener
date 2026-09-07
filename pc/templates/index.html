@@ -348,6 +348,9 @@
         .cap-sens .need { color: #94a3b8; font-size: 12px; margin-top: 6px; line-height: 1.7; }
         .cap-table tr.thr td { background: rgba(251,191,36,0.12); font-weight: 700; }
         .cap-table td.reach { color: #4ade80; font-weight: 700; }
+        .cap-conclusion { margin-top: 16px; padding: 12px 14px; border-radius: 8px;
+            background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.3);
+            color: #fde68a; font-size: 13px; line-height: 1.8; }
     </style>
 </head>
 <body>
@@ -573,6 +576,7 @@
                     <table class="cap-table" id="capBracket"></table>
                     <div class="cap-sub-title" id="capSensTitle" style="display:none;">추가 자금에 따른 변화</div>
                     <div class="cap-sens" id="capSens"></div>
+                    <div class="cap-conclusion" id="capConclusion" style="display:none;"></div>
                     <div class="cap-msgs" id="capMsgs"></div>
                     <div class="cap-basis" id="capBasisNote"></div>
                     <div class="cap-disclaimer">
@@ -1617,6 +1621,7 @@
                 .map(o => sensBlockHtml(eok(o.price) + ' (' + o.label + ') 기준', o.sens));
             document.getElementById('capSensTitle').style.display = blocks.length ? 'block' : 'none';
             sensEl.innerHTML = blocks.join('');
+            renderConclusion(out);
         }
 
         // §6.4 민감도표. 매수 상한 숫자만으로는 의미를 알 수 없으므로
@@ -1656,6 +1661,27 @@
             return '<div class="blk"><h4>' + title + '</h4>' + thr
                  + '<table class="cap-table">' + sensTableHtml(sens) + '</table>'
                  + sensNeedHtml(sens) + '</div>';
+        }
+
+        // 표를 다 읽지 않아도 결론이 보여야 한다.
+        // 목표 지역에 닿는 데 필요한 금액과, 매도 협상으로 좁힐 수 있는 폭을 한 줄로.
+        function renderConclusion(out) {
+            const el = document.getElementById('capConclusion');
+            const need = out.map(o => {
+                const t = o.sens && (o.sens.extra_needed_for_targets || [])
+                    .find(x => x.label === '25평형대');
+                return t ? t.extra_needed : null;
+            }).filter(v => v != null);
+            if (need.length < 1) { el.style.display = 'none'; return; }
+
+            const lo = Math.min(...need), hi = Math.max(...need);
+            const range = (lo === hi) ? eok(lo) : (eok(lo) + '~' + eok(hi));
+            const lines = ['현재 조건으로는 반포·잠원 25평형대에 <b>' + range + '</b>이 더 필요합니다.'];
+            if (need.length > 1) {
+                lines.push('매도 협상으로 좁힐 수 있는 폭은 약 <b>' + eok(hi - lo) + '</b>입니다.');
+            }
+            el.innerHTML = lines.join('<br>');
+            el.style.display = 'block';
         }
 
         const OPTIONAL_COLUMNS = [
