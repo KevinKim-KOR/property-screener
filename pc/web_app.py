@@ -521,6 +521,8 @@ def calc_capacity(payload: CapacityInputPayload):
             "own_funds_needed": r(cap.own_funds_needed),
             "leftover": r(cap.leftover),
             "cost_rate": cap.cost_rate,
+            # 비율만 보이면 체감이 안 되므로 금액도 함께 준다.
+            "acquisition_cost": r(cap.max_price * cap.cost_rate) if cap.max_price else None,
         },
         "bracket_table": [
             {"price": r(t["price"]), "loan": r(t["loan"]),

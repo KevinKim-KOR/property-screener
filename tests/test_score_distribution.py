@@ -3,12 +3,12 @@
 설계서 §19.0 점수 분포 판정 기준 테스트.
 
 기준이 문서에만 있으면 코드와 어긋나도 드러나지 않는다.
-개정된 기준(꼬리는 상한 12%만 검사, 하한 없음)을 여기에 고정한다.
+개정된 기준(꼬리는 상한만, 상한은 표본 수에 연동)을 여기에 고정한다.
 """
 import unittest
 
 from pc.verification.score_distribution import (
-    evaluate_score_distribution, tail_sampling_sd_pct,
+    evaluate_score_distribution, tail_cap_pct, tail_sampling_sd_pct,
 )
 
 
@@ -59,12 +59,27 @@ class TestScoreDistribution(unittest.TestCase):
         self.assertIn("90점 이상", labels)
         self.assertIn("10점 이하", labels)
 
-    def test_upper_boundary_inclusive(self):
-        # 정확히 12% 는 정상, 그 위는 위반
-        res = evaluate_score_distribution(_scores(200, 24, 24))
-        self.assertTrue(res.all_ok, "12%에서 위반 처리됨")
-        res = evaluate_score_distribution(_scores(200, 26, 26))
-        self.assertFalse(res.all_ok, "13%인데 통과됨")
+    def test_cap_tightens_as_sample_grows(self):
+        # 표본이 늘면 상한이 좁혀진다. 고정값이면 표본이 적을 때 계속 걸린다.
+        self.assertGreater(tail_cap_pct(50), tail_cap_pct(167))
+        self.assertGreater(tail_cap_pct(167), tail_cap_pct(1000))
+        self.assertAlmostEqual(tail_cap_pct(167), 16.6, delta=0.1)
+        self.assertAlmostEqual(tail_cap_pct(1000), 13.9, delta=0.1)
+
+    def test_upper_boundary_uses_dynamic_cap(self):
+        n = 200
+        cap = tail_cap_pct(n)                    # 200곳이면 약 16.2%
+        under = int(n * (cap - 1) / 100)
+        over = int(n * (cap + 2) / 100) + 1
+        self.assertTrue(evaluate_score_distribution(_scores(n, under, under)).all_ok,
+                        f"상한({cap:.1f}%) 아래인데 위반 처리됨")
+        self.assertFalse(evaluate_score_distribution(_scores(n, over, over)).all_ok,
+                         f"상한({cap:.1f}%)을 넘었는데 통과됨")
+
+    def test_observed_case_passes(self):
+        # 실측: 채점 167곳, 90점 이상 21곳(12.6%) -> 상한 16.6% 이내
+        res = evaluate_score_distribution(_scores(167, 10, 21))
+        self.assertTrue(res.all_ok, [c.label for c in res.failures()])
 
     def test_empty_returns_none(self):
         self.assertIsNone(evaluate_score_distribution([]))

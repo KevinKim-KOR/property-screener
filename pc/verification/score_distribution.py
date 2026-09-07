@@ -5,10 +5,10 @@
 판정 기준이 문서에만 있고 코드에 없어서 매 실행마다 사람이 손으로 계산해야 했다.
 여기에 한 곳으로 모아 두고, 자가검증 리포트와 run 검증이 같은 값을 쓰게 한다.
 
-기준 (v4.3 개정)
+기준
   중앙값        45 ~ 55
-  90점 이상     12% 이하   (상한만 검사)
-  10점 이하     12% 이하   (상한만 검사)
+  90점 이상     12% + 2×표본흔들림 이하   (상한만 검사, 표본 연동)
+  10점 이하     12% + 2×표본흔들림 이하
 
 §9.5 의 Φ(CDF) 매핑이 정규분포를 균등분포로 바꾸므로 상위 10%가 90점을
 넘는 것이 정상이다. 개정 전 기준 0~2% 는 원점수를 그대로 쓰는 전제의
@@ -31,7 +31,13 @@ MEDIAN_CENTER = 50.0
 # 점수 가짓수 152개·네 블록 정상·꼬리 정상으로 붕괴가 아니었다.
 # 옛 허용폭은 정상 실행을 반려해 수정 자체가 화면에 반영되지 못하게 했다.
 MEDIAN_TOL = 5.0
-TAIL_MAX_PCT = 12.0   # 상한만 검사한다 (하한 없음)
+# 꼬리 비율 상한. 표본 수에 연동한다(2026-09-07 개정).
+#   상한 = TAIL_BASE_PCT + TAIL_SD_MULTIPLIER × 표본흔들림
+# 고정값으로 두면 표본이 적을 때 정상 실행이 계속 걸린다. V11 허용폭을 두 번
+# 넓힌 것과 같은 반복이 된다. 표본이 늘면 상한이 자동으로 좁혀진다
+# (N=167 이면 16.6%, N=1000 이면 13.9%).
+TAIL_BASE_PCT = 12.0
+TAIL_SD_MULTIPLIER = 2.0
 HIGH_CUT = 90.0
 LOW_CUT = 10.0
 
@@ -71,16 +77,25 @@ def evaluate_score_distribution(scores: List[float]) -> Optional[DistributionRes
     hi_pct = hi / n * 100.0
     lo_pct = lo / n * 100.0
 
+    cap = tail_cap_pct(n)
     checks = [
         Check("중간 점수", med, f"{med:.1f}점",
               f"{MEDIAN_CENTER - MEDIAN_TOL:.0f}~{MEDIAN_CENTER + MEDIAN_TOL:.0f}점",
               abs(med - MEDIAN_CENTER) <= MEDIAN_TOL),
         Check("90점 이상", hi_pct, f"{hi}곳 ({hi_pct:.1f}%)",
-              f"{TAIL_MAX_PCT:.0f}% 이하", hi_pct <= TAIL_MAX_PCT),
+              f"{cap:.1f}% 이하 ({n:,}곳 기준)", hi_pct <= cap),
         Check("10점 이하", lo_pct, f"{lo}곳 ({lo_pct:.1f}%)",
-              f"{TAIL_MAX_PCT:.0f}% 이하", lo_pct <= TAIL_MAX_PCT),
+              f"{cap:.1f}% 이하 ({n:,}곳 기준)", lo_pct <= cap),
     ]
     return DistributionResult(n=n, checks=checks)
+
+
+def tail_cap_pct(n: int, tail_ratio: float = 0.10) -> float:
+    """
+    표본 수에 연동한 꼬리 비율 상한(%).
+    표본이 적을수록 꼬리 비율이 크게 흔들리므로 상한을 그만큼 넉넉히 잡는다.
+    """
+    return TAIL_BASE_PCT + TAIL_SD_MULTIPLIER * tail_sampling_sd_pct(n, tail_ratio)
 
 
 def tail_sampling_sd_pct(n: int, tail_ratio: float = 0.10) -> float:

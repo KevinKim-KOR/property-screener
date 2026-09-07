@@ -327,6 +327,20 @@
         .cap-basis { margin-top: 10px; color: #64748b; font-size: 11px; }
         .cap-disclaimer { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);
             color: #8b95a5; font-size: 11px; }
+        .cap-sub { margin-bottom: 14px; }
+        .cap-sub-title { color: #cbd5e1; font-size: 12px; font-weight: 600; margin: 18px 0 6px; }
+        .cap-headline { color: #fff; font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+        .cap-headline .unit { font-size: 14px; font-weight: 600; color: #93c5fd; margin-left: 6px; }
+        .cap-parts { display: flex; flex-wrap: wrap; gap: 6px 26px; }
+        .cap-part { color: #94a3b8; font-size: 12px; }
+        .cap-part b { color: #e2e8f0; font-weight: 600; margin-left: 6px; }
+        .cap-gaps .g { display: flex; gap: 12px; align-items: baseline; padding: 3px 0; font-size: 13px; }
+        .cap-gaps .g .lbl { color: #8b95a5; min-width: 96px; }
+        .cap-gaps .g .med { color: #e2e8f0; min-width: 84px; font-variant-numeric: tabular-nums; }
+        .cap-gaps .g .sh { color: #f87171; font-weight: 700; }
+        .cap-table td.no { color: #f87171; }
+        .cap-table td.yes { color: #4ade80; }
+        .cap-table tr.edge td { background: rgba(251,191,36,0.08); }
     </style>
 </head>
 <body>
@@ -515,6 +529,24 @@
                     <div class="cap-field"><label for="capHoldContrib">청산금분 보유공제율<span class="cap-hint">0~1</span></label><input type="text" inputmode="decimal" id="capHoldContrib" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
                     <div class="cap-field"><label for="capLiveContrib">청산금분 거주공제율<span class="cap-hint">0~1</span></label><input type="text" inputmode="decimal" id="capLiveContrib" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
                 </div>
+                <div class="cap-title" style="margin-top:18px;">매수 조건</div>
+                <div class="cap-grid">
+                    <div class="cap-field"><label for="capCash">보유 현금<span class="cap-hint">원</span></label>
+                        <input type="text" inputmode="decimal" id="capCash" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capExtra">추가 여유자금<span class="cap-hint">원 · 0 가능</span></label>
+                        <input type="text" inputmode="decimal" id="capExtra" oninput="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px; text-align:right;"></div>
+                    <div class="cap-field"><label for="capArea85">전용면적</label>
+                        <select id="capArea85" onchange="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px;">
+                            <option value="0">85㎡ 이하</option>
+                            <option value="1">85㎡ 초과</option>
+                        </select></div>
+                    <div class="cap-field"><label for="capBasis">가격 기준<span class="cap-hint">표시용</span></label>
+                        <select id="capBasis" onchange="onCapacityInput()" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:#fff; padding:6px 8px; font-size:13px;">
+                            <option value="실거래가">실거래가</option>
+                            <option value="KB시세">KB시세</option>
+                            <option value="감정가">감정가</option>
+                        </select></div>
+                </div>
                 <div class="cap-actions">
                     <button class="btn-filter" onclick="resetCapacityInputs()">입력 초기화</button>
                 </div>
@@ -524,9 +556,16 @@
                 <div class="cap-title">매도 내역</div>
                 <div class="cap-blocked" id="capBlocked" style="display:none;"></div>
                 <div id="capResult" style="display:none;">
+                    <div class="cap-sub" id="capSummary"></div>
                     <table class="cap-table" id="capTable"></table>
+                    <div class="cap-sub-title" id="capGapTitle" style="display:none;">목표 지역 대비</div>
+                    <div class="cap-gaps" id="capGaps"></div>
+                    <div class="cap-sub-title" id="capCmpTitle" style="display:none;">매도가에 따른 차이</div>
+                    <table class="cap-table" id="capCompare"></table>
+                    <div class="cap-sub-title" id="capBrTitle" style="display:none;">구간별 판정</div>
+                    <table class="cap-table" id="capBracket"></table>
                     <div class="cap-msgs" id="capMsgs"></div>
-                    <div class="cap-basis" id="capBasis"></div>
+                    <div class="cap-basis" id="capBasisNote"></div>
                     <div class="cap-disclaimer">
                         세액은 참고용 추정치입니다. 확정 세액은 세무 전문가의 확인이 필요합니다.
                     </div>
@@ -1357,6 +1396,8 @@
             ['capLivePrior',   'live_rate_prior'],
             ['capHoldContrib', 'hold_rate_contrib'],
             ['capLiveContrib', 'live_rate_contrib'],
+            ['capCash',        'cash_on_hand'],
+            ['capExtra',       'extra_fund'],
         ];
 
         const won = v => (v == null) ? '' : Number(v).toLocaleString('ko-KR') + '원';
@@ -1368,6 +1409,10 @@
                 const el = document.getElementById(id);
                 out[key] = el ? el.value.trim() : '';
             });
+            const a = document.getElementById('capArea85');
+            const b = document.getElementById('capBasis');
+            out.area_over_85 = a ? a.value === '1' : false;
+            out.price_basis = b ? b.value : '';
             return out;
         }
 
@@ -1385,6 +1430,10 @@
                 const el = document.getElementById(id);
                 if (el && !el.value && saved[key]) el.value = saved[key];
             });
+            const a = document.getElementById('capArea85');
+            if (a && saved.area_over_85 !== undefined) a.value = saved.area_over_85 ? '1' : '0';
+            const b = document.getElementById('capBasis');
+            if (b && saved.price_basis) b.value = saved.price_basis;
             renderCapacityMine();
         }
 
@@ -1421,7 +1470,7 @@
             const result = document.getElementById('capResult');
             let d;
             try {
-                const res = await fetch('/api/purchase_capacity/sale', {
+                const res = await fetch('/api/purchase_capacity/full', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(collectCapacityInputs())
                 });
@@ -1448,26 +1497,110 @@
             blocked.style.display = 'none';
             result.style.display = 'block';
 
-            const b = d.breakdown;
-            const rows = [
-                ['매도가', b.sale_price],
-                ['중개보수', -b.brokerage_fee],
-                ['양도소득세', -b.total_tax],
-                ['대출 상환', -b.mortgage_balance],
-            ];
-            let html = rows.map(([k, v]) =>
-                '<tr><td>' + k + '</td><td>' + won(v) + '</td></tr>').join('');
-            html += '<tr class="total"><td>매도 순현금</td><td>' + won(b.net_cash)
-                 + '　(' + eok(b.net_cash) + ')</td></tr>';
-            document.getElementById('capTable').innerHTML = html;
+            renderCapacityResult(d);
 
             const msgs = [];
             (d.warnings || []).forEach(w => msgs.push('<div class="warn">⚠ ' + w + '</div>'));
             (d.notes || []).forEach(n => msgs.push('<div class="note">· ' + n + '</div>'));
             document.getElementById('capMsgs').innerHTML = msgs.join('');
-            document.getElementById('capBasis').textContent =
+            document.getElementById('capBasisNote').textContent =
                 '적용 기준 ' + (d.basis.capital_gains_effective_from || '')
                 + ' · ' + (d.basis.capital_gains_source || '');
+        }
+
+        function renderCapacityResult(d) {
+            const b = d.sale, c = d.capacity;
+
+            // §6.1 결과 요약. 비율만 보이면 체감이 안 되므로 금액으로 함께 보인다.
+            const sum = document.getElementById('capSummary');
+            if (c.max_price == null) {
+                sum.innerHTML = '<div class="cap-headline" style="color:#fbbf24;">매수 가능한 가격대가 없습니다</div>';
+            } else {
+                sum.innerHTML =
+                    '<div class="cap-headline">매수 가능 상한 ' + eok(c.max_price)
+                    + '<span class="unit">' + (d.price_basis ? d.price_basis + ' 기준' : '') + '</span></div>'
+                    + '<div class="cap-parts">'
+                    + '<span class="cap-part">취득세·수수료<b>' + eok(c.acquisition_cost) + '</b></span>'
+                    + '<span class="cap-part">필요 자기자금<b>' + eok(c.own_funds_needed) + '</b></span>'
+                    + '<span class="cap-part">대출<b>' + eok(c.loan_at_max) + '</b></span>'
+                    + '<span class="cap-part">남는 자금<b>' + eok(c.leftover) + '</b></span>'
+                    + '</div>';
+            }
+
+            // §6.2 매도 내역
+            const rows = [
+                ['매도가', b.sale_price], ['중개보수', -b.brokerage_fee],
+                ['양도소득세', -b.total_tax], ['대출 상환', -b.mortgage_balance],
+            ];
+            let html = rows.map(([k, v]) => '<tr><td>' + k + '</td><td>' + won(v) + '</td></tr>').join('');
+            html += '<tr><td>매도 순현금</td><td>' + won(b.net_cash) + '</td></tr>';
+            html += '<tr><td>보유 현금</td><td>' + won(b.cash_on_hand) + '</td></tr>';
+            html += '<tr><td>추가 자금</td><td>' + won(b.extra_fund) + '</td></tr>';
+            html += '<tr class="total"><td>가용자금</td><td>' + won(b.available_funds)
+                 + '　(' + eok(b.available_funds) + ')</td></tr>';
+            document.getElementById('capTable').innerHTML = html;
+
+            // 목표 지역 대비 부족액
+            const gapsEl = document.getElementById('capGaps');
+            const gaps = d.gaps || [];
+            document.getElementById('capGapTitle').style.display = gaps.length ? 'block' : 'none';
+            gapsEl.innerHTML = gaps.map(g =>
+                '<div class="g"><span class="lbl">반포·잠원 ' + g.label + '</span>'
+                + '<span class="med">' + g.median_price.toFixed(2) + '억</span>'
+                + '<span class="sh">→ ' + (g.shortfall / 100000000).toFixed(2) + '억 부족</span>'
+                + '<span class="lbl">(' + g.complex_count + '곳 기준)</span></div>').join('');
+
+            // 구간별 판정. 25.0억 경계가 눈에 보이게 한다.
+            const br = d.bracket_table || [];
+            document.getElementById('capBrTitle').style.display = br.length ? 'block' : 'none';
+            let bh = '<tr><td>매수가</td><td>대출</td><td>필요자금</td><td>가능</td></tr>';
+            br.forEach((t, i) => {
+                const prev = br[i - 1];
+                const edge = prev && prev.loan !== t.loan;   // 대출 한도가 바뀌는 지점
+                // 억 단위로 반올림하면 2,499,999,999 와 2,500,000,000 이 둘 다 '25.00억'이 되어
+                // 경계가 보이지 않는다. 매수가는 원 단위로 표시한다.
+                bh += '<tr' + (edge ? ' class="edge"' : '') + '><td>' + won(t.price) + '</td><td>'
+                    + eok(t.loan) + '</td><td>' + eok(t.required_funds) + '</td><td class="'
+                    + (t.feasible ? 'yes' : 'no') + '">' + (t.feasible ? '가능' : '불가') + '</td></tr>';
+            });
+            document.getElementById('capBracket').innerHTML = bh;
+
+            renderCapacityCompare();
+        }
+
+        // 매도가 두 값(실거래 / 호가)으로 각각 계산해 나란히 보여준다.
+        // 1억 차이가 매수 상한을 얼마나 바꾸는지 보기 위한 것이다.
+        async function renderCapacityCompare() {
+            const el = document.getElementById('capCompare');
+            const title = document.getElementById('capCmpTitle');
+            const base = collectCapacityInputs();
+            const cur = parseFloat(String(base.sale_price).replace(/,/g, ''));
+            const mine = capMineData && capMineData.found ? capMineData.median_price_3m * 100000000 : null;
+            if (!mine || !isFinite(cur) || Math.abs(cur - mine) < 1) {
+                title.style.display = 'none'; el.innerHTML = ''; return;
+            }
+            const pairs = [[mine, '실거래'], [cur, '입력값']];
+            const out = [];
+            for (const [price, label] of pairs) {
+                try {
+                    const res = await fetch('/api/purchase_capacity/full', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({...base, sale_price: String(Math.round(price))})
+                    });
+                    const r = await res.json();
+                    if (r.ok) out.push({label, price, tax: r.sale.total_tax,
+                                        net: r.sale.net_cash, cap: r.capacity.max_price});
+                } catch (e) { /* 한쪽이 실패하면 그 열은 비운다 */ }
+            }
+            if (out.length < 2) { title.style.display = 'none'; el.innerHTML = ''; return; }
+            title.style.display = 'block';
+            const head = '<tr><td></td>' + out.map(o =>
+                '<td>' + eok(o.price) + ' (' + o.label + ')</td>').join('') + '</tr>';
+            const line = (k, f) => '<tr><td>' + k + '</td>'
+                + out.map(o => '<td>' + eok(f(o)) + '</td>').join('') + '</tr>';
+            el.innerHTML = head + line('양도소득세', o => o.tax) + line('매도 순현금', o => o.net)
+                + '<tr class="total"><td>매수 가능 상한</td>'
+                + out.map(o => '<td>' + eok(o.cap) + '</td>').join('') + '</tr>';
         }
 
         const OPTIONAL_COLUMNS = [
