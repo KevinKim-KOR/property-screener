@@ -33,13 +33,15 @@ class TestCase1(unittest.TestCase):
         self.res = compute_sale({**COMMON, "sale_price": 2_550_000_000})
 
     def test_total_tax(self):
-        # 기대 170,600,000 (오차 ±1,000,000)
-        self.assertAlmostEqual(self.res.total_tax, 170_600_000, delta=1_000_000)
+        # 기대 170,591,291 (오차 ±10,000)
+        # 허용 오차를 좁혔다. 계산이 결정론적이라 느슨할 이유가 없고,
+        # 옛 ±100만원 기준은 조합원 분양가 오적용(493,358원 차이)을 그냥 통과시켰다.
+        self.assertAlmostEqual(self.res.total_tax, 170_591_291, delta=10_000)
 
     def test_available_funds(self):
         # 가용자금 = 매도순현금 + 보유현금 (추가자금 0)
         available = self.res.net_cash + CASH_ON_HAND
-        self.assertAlmostEqual(available, 2_339_800_000, delta=1_000_000)
+        self.assertAlmostEqual(available, 2_339_773_709, delta=10_000)
 
     def test_not_exempt(self):
         self.assertFalse(self.res.is_exempt)
@@ -48,9 +50,15 @@ class TestCase1(unittest.TestCase):
         self.assertAlmostEqual(self.res.applied_rate, 0.40, places=6)
 
     def test_reports_supply_price_mismatch(self):
-        # 조합원 분양가 != 권리가액 + 부담금. 조용히 넘기지 않는다.
+        # 조합원 분양가는 계산에 쓰지 않지만, 권리가액＋부담금과 다르면 경고한다.
         self.assertTrue(any("조합원 분양가" in w for w in self.res.warnings),
                         self.res.warnings)
+
+    def test_supply_price_does_not_affect_result(self):
+        # 조합원 분양가를 바꿔도 세액이 달라지지 않아야 한다(계산 경로에서 제외).
+        other = compute_sale({**COMMON, "sale_price": 2_550_000_000,
+                              "member_supply_price": 999_999_999})
+        self.assertAlmostEqual(other.total_tax, self.res.total_tax, delta=0.01)
 
 
 class TestCase5(unittest.TestCase):
@@ -65,6 +73,29 @@ class TestCase5(unittest.TestCase):
     def test_marked_exempt(self):
         self.assertTrue(self.res.is_exempt)
         self.assertTrue(any("비과세" in n for n in self.res.notes), self.res.notes)
+
+
+class TestCase6Identity(unittest.TestCase):
+    """케이스 6: 안분 항등식. 1원이라도 벌어지면 실패."""
+
+    def test_identity_holds(self):
+        for sale in (2_550_000_000, 1_500_000_000, 3_000_000_000, 800_000_000):
+            with self.subTest(sale=sale):
+                res = compute_sale({**COMMON, "sale_price": sale})
+                if any("음수" in n for n in res.notes):
+                    continue   # 음수 절사가 있으면 항등식이 성립하지 않는다
+                expected = sale - (COMMON["acq_price_prior"] + COMMON["contribution"]) \
+                           - COMMON["necessary_expense"]
+                self.assertAlmostEqual(
+                    res.gain_prior_building + res.gain_contribution, expected, delta=1.0,
+                    msg=f"매도가 {sale:,} 에서 안분 합계가 취득가액 기준과 어긋남")
+
+    def test_identity_with_necessary_expense(self):
+        res = compute_sale({**COMMON, "sale_price": 2_550_000_000,
+                            "necessary_expense": 30_000_000})
+        expected = 2_550_000_000 - (COMMON["acq_price_prior"] + COMMON["contribution"]) - 30_000_000
+        self.assertAlmostEqual(res.gain_prior_building + res.gain_contribution,
+                               expected, delta=1.0)
 
 
 class TestInputHandling(unittest.TestCase):
@@ -99,13 +130,28 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(res.gain_after_approval, 0.0)
         self.assertTrue(any("인가후 양도차익이 음수" in n for n in res.notes), res.notes)
 
-    def test_long_term_deduction_over_limit_warns_but_computes(self):
-        res = compute_sale({**COMMON, "sale_price": 2_550_000_000,
-                            "hold_rate_prior": 0.50, "live_rate_prior": 0.50})
-        self.assertTrue(any("80%" in w for w in res.warnings), res.warnings)
-        self.assertIsNotNone(res.total_tax)   # 막지 않는다
+    def test_deduction_over_combined_limit_stops(self):
+        # 합계 80% 초과 -> 자동으로 잘라내지 않고 중단한다.
+        with self.assertRaises(CapitalGainsError) as ctx:
+            compute_sale({**COMMON, "sale_price": 2_550_000_000,
+                          "hold_rate_prior": 0.40, "live_rate_prior": 0.41})
+        self.assertIn("합계", str(ctx.exception))
 
-    def test_case1_rates_do_not_warn(self):
+    def test_deduction_over_individual_limit_stops(self):
+        with self.assertRaises(CapitalGainsError) as ctx:
+            compute_sale({**COMMON, "sale_price": 2_550_000_000, "hold_rate_prior": 0.45})
+        self.assertIn("보유공제율", str(ctx.exception))
+
+    def test_negative_deduction_rate_stops(self):
+        with self.assertRaises(CapitalGainsError):
+            compute_sale({**COMMON, "sale_price": 2_550_000_000, "live_rate_contrib": -0.01})
+
+    def test_deduction_at_limit_is_allowed(self):
+        res = compute_sale({**COMMON, "sale_price": 2_550_000_000,
+                            "hold_rate_prior": 0.40, "live_rate_prior": 0.40})
+        self.assertGreater(res.long_term_deduction, 0)
+
+    def test_case1_rates_pass_limits(self):
         res = compute_sale({**COMMON, "sale_price": 2_550_000_000})
         self.assertFalse(any("공제율" in w for w in res.warnings), res.warnings)
 

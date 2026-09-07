@@ -132,48 +132,80 @@ def compute_sale(raw: Dict, config_path: Optional[str] = None) -> SaleResult:
 
     if sale <= 0:
         raise CapitalGainsError("매도 예상가가 0 이하입니다.")
-    if supply <= 0:
-        raise CapitalGainsError("조합원 분양가가 0 이하라 청산금 비율을 구할 수 없습니다.")
+
+    clamped = False   # 음수 양도차익을 0 으로 막았는지. 막으면 항등식이 성립하지 않는다.
 
     # ── §5.1 양도차익 안분 ──────────────────────────────────
-    # NOTE: 취득가액합계 = 종전주택 취득가액 + 부담금.
-    #   요청서 §5.1 에 정의되어 있으나 §5.2~5.3 에서 쓰이지 않는다.
-    #   아래 안분 합계와 493,358원 차이가 나며(조합원 분양가 != 권리가액 + 부담금),
-    #   어느 쪽이 정본인지 세무 확인 중이다. 확인되면 이 값을 쓰도록 바꿔야 하므로
-    #   삭제하지 않고 남긴다.
-    acq_total = acq + contrib
+    # 재건축 신축주택의 취득가액은 '종전주택 취득가액 + 실제 납부한 청산금'이다.
+    # 조합원 분양가는 취득가액이 아니므로 계산 경로에서 쓰지 않는다.
+    # (조합원 분양가를 쓰면 안분 합계가 취득가액 기준 총액과 어긋나
+    #  경로에 따라 답이 갈렸다. 아래 항등식 검사로 재발을 막는다.)
+    acq_total = acq + contrib                 # 취득가액합계
+    cost_after_approval = right + contrib     # 인가후 취득원가
+
+    if cost_after_approval <= 0:
+        raise CapitalGainsError("권리가액과 부담금의 합이 0 이하라 청산금 비율을 구할 수 없습니다.")
 
     gain_before = right - acq
-    gain_after = sale - supply - nec
+    gain_after = sale - cost_after_approval - nec
 
     if gain_before < 0:
         notes.append("인가전 양도차익이 음수입니다 (권리가액 < 종전주택 취득가액) — 0으로 처리")
         gain_before = 0.0
+        clamped = True
     if gain_after < 0:
-        notes.append("인가후 양도차익이 음수입니다 (매도가 < 조합원 분양가) — 0으로 처리")
+        notes.append("인가후 양도차익이 음수입니다 (매도가 < 권리가액＋부담금) — 0으로 처리")
         gain_after = 0.0
+        clamped = True
 
-    ratio = contrib / supply
+    ratio = contrib / cost_after_approval
     gain_contrib = gain_after * ratio
     gain_prior = gain_before + gain_after * (1.0 - ratio)
     gain_total = gain_prior + gain_contrib
 
-    # 입력값 내부 불일치. 조용히 넘기면 세무 상담에서 숫자가 맞지 않는다.
-    supply_gap = supply - (right + contrib)
+    # 안분 항등식 검사.
+    # 음수 절사가 없었다면 안분 합계는 '매도가 - 취득가액합계 - 필요경비'와
+    # 정확히 같아야 한다. 1원이라도 벌어지면 안분식이 틀어진 것이므로 실패시킨다.
+    if not clamped:
+        identity = sale - acq_total - nec
+        if abs(gain_total - identity) > 1.0:
+            raise CapitalGainsError(
+                f"양도차익 안분이 취득가액 기준 총액과 맞지 않습니다: "
+                f"안분 합계 {gain_total:,.0f}원, 취득가액 기준 {identity:,.0f}원 "
+                f"(차이 {gain_total - identity:,.0f}원)")
+
+    # 조합원 분양가는 계산에 쓰지 않지만 입력은 받는다.
+    # 권리가액＋부담금과 다르면 입력 자료를 다시 봐야 하므로 경고한다.
+    supply_gap = supply - cost_after_approval
     if abs(supply_gap) >= 1:
         warnings.append(
-            f"조합원 분양가({supply:,.0f}원)와 권리가액＋부담금({right + contrib:,.0f}원)이 "
-            f"{abs(supply_gap):,.0f}원 다릅니다. 입력값 확인이 필요합니다.")
+            f"조합원 분양가({supply:,.0f}원)와 권리가액＋부담금({cost_after_approval:,.0f}원)이 "
+            f"{abs(supply_gap):,.0f}원 다릅니다. 계산에는 영향이 없으나 입력 자료 확인이 필요합니다.")
 
     # ── §5.2 장기보유특별공제 ───────────────────────────────
     exemption_limit = float(tax_cfg["one_house_exemption_limit"])
-    warn_over = float(tax_cfg.get("long_term_deduction_warn_over", 0.80))
-    for label, rates in (("기존건물분", (values["hold_rate_prior"], values["live_rate_prior"])),
-                         ("청산금분", (values["hold_rate_contrib"], values["live_rate_contrib"]))):
-        if sum(rates) > warn_over:
-            warnings.append(
-                f"{label} 공제율 합계가 {sum(rates) * 100:.0f}%로 "
-                f"{warn_over * 100:.0f}%를 초과합니다. 확인이 필요합니다.")
+
+    # 장기보유특별공제 상한 검사.
+    # 상한을 넘으면 값을 잘라내지 않고 계산을 중단한다. 자동으로 잘라내면
+    # 사용자가 잘못 넣은 사실을 모른 채 결과를 신뢰하게 된다.
+    ltd = tax_cfg.get("long_term_deduction") or {}
+    max_hold = float(ltd.get("max_hold_rate", 0.40))
+    max_live = float(ltd.get("max_live_rate", 0.40))
+    max_combined = float(ltd.get("max_combined_rate", 0.80))
+    over: List[str] = []
+    for label, hold_key, live_key in (
+            ("기존건물분", "hold_rate_prior", "live_rate_prior"),
+            ("청산금분", "hold_rate_contrib", "live_rate_contrib")):
+        h, lv = values[hold_key], values[live_key]
+        if h < 0 or h > max_hold:
+            over.append(f"{label} 보유공제율 {h:.2f} (허용 0 ~ {max_hold:.2f})")
+        if lv < 0 or lv > max_live:
+            over.append(f"{label} 거주공제율 {lv:.2f} (허용 0 ~ {max_live:.2f})")
+        if h + lv > max_combined:
+            over.append(f"{label} 보유＋거주 합계 {h + lv:.2f} (허용 {max_combined:.2f} 이하)")
+    if over:
+        raise CapitalGainsError(
+            "장기보유특별공제율이 허용 범위를 벗어났습니다: " + " / ".join(over))
 
     if sale <= exemption_limit:
         taxable_ratio = 0.0

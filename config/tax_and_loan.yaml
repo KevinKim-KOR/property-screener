@@ -30,11 +30,16 @@ capital_gains_tax:
   one_house_exemption_limit: 1200000000   # 1세대 1주택 비과세 기준금액
   one_house_exemption_source: "소득세법 시행령 제156조 (고가주택 기준 12억)"
 
-  # 장기보유특별공제 합계 상한.
-  # 80% 가 맞는지 세무 확인 중이라 지금은 '경고만' 한다. 계산을 막지 않는다.
-  long_term_deduction_warn_over: 0.80
-  long_term_deduction_enforce: false
-  long_term_deduction_note: "1세대 1주택 장특공 보유 40% + 거주 40%. 상한 확인 대기"
+  # 장기보유특별공제 상한 (1세대 1주택).
+  # 위반 시 값을 잘라내지 않고 계산을 중단한다. 클램프하면 사용자가 잘못
+  # 넣은 사실을 모른 채 결과를 신뢰하게 된다.
+  # 2028년 개편안이 통과하면 이 값이 바뀐다.
+  long_term_deduction:
+    max_hold_rate: 0.40          # 보유 공제율 개별 상한
+    max_live_rate: 0.40          # 거주 공제율 개별 상한
+    max_combined_rate: 0.80      # 보유 + 거주 합계 상한
+    source: "소득세법 제95조 제2항 표2 (1세대 1주장 장기보유특별공제)"
+    effective_from: "2021-01-01"
 
 # ── 대출 한도 (Phase 2 에서 사용) ──────────────────────────────
 loan_limit:
